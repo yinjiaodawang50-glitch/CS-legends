@@ -3,35 +3,44 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CS LEGENDS v5.0</title>
+<title>CS LEGENDS v6.0</title>
 <!--
 ═══════════════════════════════════════════════════════════════════
-  CS LEGENDS v5.0 — 全面修复版
-  基于 v4.0 重构，主要修复与优化：
+  CS LEGENDS v6.0 — 特质系统深度重构版
+  基于 v5.0 全面修复版，本版核心升级：
 
-  【严重Bug修复】
-  1. BP.start() 存在双重定义，第二个 start() 的旧变量名 (this.opp/pMapStr/oMapStr)
-     与第一个不兼容，导致整个BP流程崩溃 → 合并为唯一正确的 start()
-  2. Tour._advLoss(aiTeam, aiTeam) 传了两个参数但函数只接收一个 → 修复参数
-  3. Tour.seriesMaps / seriesMapIdx / _mapResults 在每场系列赛前未重置 → 在 BP._finish() 中统一重置
-  4. Match.exit() 进入下一张图时未清除 matchlog → 修复
-  5. BP._availMaps() 用 Set 追踪已用图，但 decider 存的是对象而非字符串 → 修复为统一用字符串
-  6. World.init() 调用时 Game.date 尚未设置导致时代判断错误 → 先设 date 再 init
-  7. Market.refresh() 在初始化时扣钱 → 改为 _silentRefresh() 不扣费
-  8. UI.refresh() 读取 synCache 前未调用 synergy() → 在 refresh 中先调用
+  【三级特质库架构】
+  A. 常规特质（NORMAL_TRAITS）—— 路人选手 20% 概率获得 1 个
+     · 爆头机器：步枪局击杀权重+15%；日志中爆头击杀金色高亮
+     · 大心脏：  残局1vX Clutch 成功率+40%，必定上日志
+     · 神经刀：  每回合战力乘以 0.75~1.35 随机浮动
+     · 领袖：    IGL上场时全队战力+4%，首次触发日志播报
 
-  【逻辑修复】
-  9. BO1/BO3/BO5 的 BP 步骤数量与 pick 槽位显示对齐修复
-  10. 系列赛胜负判断：Math.ceil(bo/2) BO1→1, BO3→2, BO5→3 全部验证正确
-  11. 老将下滑：age++ 在 forEach 中对同一玩家可能被计算两次（roster与World.players重叠）→ 用 Set 去重
-  12. AI转会：弱队 roster 为空时崩溃 → 添加防护
-  13. skipToEvent 逻辑：避免无限循环，加上最大迭代保护
+  B. 通用传奇特质（GENERIC_LEGEND_TRAITS）—— 仅 Regen Legend（0.5%）可抽取
+     · 绝对核心：1vX残局时战力+20%，必定 Clutch，金字播报
+     · 天生赢家：半/决赛赛后Rating强制≥1.10，金字播报
 
-  【架构优化】
-  14. 统一 TournamentState 管理系列赛状态（seriesMaps/seriesMapIdx/seriesWinsP/seriesWinsAI）
-  15. BP 状态在每次 start() 时完整重置，杜绝上一场状态污染
-  16. 所有 DOM 操作加 null 检查
-  17. 使用防御性代码包裹所有关键流程节点
+  C. 历史专属签名特质（SIGNATURE_TRAITS）—— 唯一绑定真实选手
+     · 天外飞仙（s1mple）：落后≥4分时战力+20%，多杀概率翻倍，金字播报
+     · 载物领域（ZyWoO）：  免负面状态，手枪局不折扣，1vX+55%，金字播报
+     · 战术大脑（karrigan/gla1ve）：无视Synergy惩罚，全队×1.1，BP额外效果
+     · 不老神话（f0rest）：30岁后永不下滑
+
+  【HISTORICAL_DATA 深度绑定】
+  · 每个真实选手在 HISTORICAL_DATA 配置 signatureTrait + normalTraits
+  · mkRealPlayer 自动装备签名特质 + 预设常规特质，无需 while 循环
+  · debutYear 登场选手同样走 mkRealPlayer 流程，特质100%正确
+
+  【mkP 重构】
+  · AI 选手：0% 特质概率（AI无特质，简化逻辑）
+  · 路人选手：20% 获得 1 个常规特质
+  · Regen Legend（0.5%）：1 个通用传奇特质 + 2 个常规特质，金色边框
+
+  【比赛引擎集成】
+  · calcTraitMult：精准逐层处理所有特质效果
+  · _micro：大心脏/绝对核心/载物领域/爆头机器在残局场景特殊判定
+  · end()：天生赢家在赛后Rating结算触发，金字播报
+  · 所有传奇/签名特质用金色字体+专属前缀 [★签名]/[✦传奇] 区分
 ═══════════════════════════════════════════════════════════════════
 -->
 <style>
@@ -190,12 +199,24 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .syn{margin-bottom:7px;padding-left:9px;border-left:2px solid var(--border);font-size:12px}
 .intel-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);font-size:12px}
 .intel-row:last-child{border-bottom:none}
+/* 特质徽章分级样式 */
+.trait-normal{font-size:9px;padding:2px 5px;border-radius:3px;margin-right:3px;font-weight:700;display:inline-block}
+.trait-legend{font-size:9px;padding:2px 5px;border-radius:3px;margin-right:3px;font-weight:700;display:inline-block;animation:traitPulse 2s ease-in-out infinite alternate}
+.trait-sig{font-size:9px;padding:2px 5px;border-radius:3px;margin-right:3px;font-weight:700;display:inline-block;animation:sigShimmer 3s linear infinite}
+@keyframes traitPulse{from{box-shadow:0 0 4px rgba(255,215,0,0.4)}to{box-shadow:0 0 10px rgba(255,215,0,0.9)}}
+@keyframes sigShimmer{0%{filter:brightness(1)}50%{filter:brightness(1.4)}100%{filter:brightness(1)}}
+/* 传奇选手卡片：额外金色脉冲 */
+.card.regen-legend{animation:legendCardPulse 3s ease-in-out infinite alternate}
+@keyframes legendCardPulse{from{box-shadow:0 0 6px rgba(255,215,0,0.2)}to{box-shadow:0 0 18px rgba(255,215,0,0.55)}}
+/* 比赛日志：签名特质触发专用 */
+.mlog-e.sig-trigger{border-left-color:#ff9500;color:#ffd700;font-weight:700;background:rgba(255,215,0,0.06)}
+.mlog-e.legend-trigger{border-left-color:#a78bfa;color:#c4b5fd;font-weight:700;background:rgba(167,139,250,0.06)}
 </style>
 </head>
 <body>
 
 <div class="sb">
-  <div class="logo">CS LEGENDS <span>v5.0</span></div>
+  <div class="logo">CS LEGENDS <span>v6.0</span></div>
   <div class="timebox">
     <div class="timedate" id="ui-date">2000-01-01</div>
     <div class="era-tag" id="ui-era">CS 1.6 Era</div>
@@ -455,26 +476,114 @@ const ROLES={
   IGL:   {zh:'指挥',  color:'#06b6d4'},
   Rifler:{zh:'步枪手',color:'#6b7280'}
 };
-const TRAITS={
-  headshot: {name:'爆头机器',type:'normal',desc:'步枪局输出+15%',color:'#ef4444'},
-  bigHeart: {name:'大心脏',  type:'normal',desc:'残局Clutch胜率提升',color:'#f97316'},
-  volatile:  {name:'神经刀',  type:'normal',desc:'发挥极不稳定，上限极高下限极低',color:'#a855f7'},
-  leader:    {name:'领袖',    type:'normal',desc:'担任指挥时全队磨合+20',color:'#eab308'},
-  cold:      {name:'冷酷',    type:'legacy',desc:'赛点局能力+10%',color:'#06b6d4'},
-  joker:     {name:'搞子',    type:'legacy',desc:'大优时概率送分',color:'#f97316',bad:true},
-  magician:  {name:'魔术师',  type:'legacy',desc:'手枪/ECO局战力+30%',color:'#a855f7'},
-  adaptive:  {name:'地图校准',type:'legacy',desc:'非擅长图无惩罚',color:'#3b82f6'},
-  evergreen: {name:'常青树',  type:'legacy',desc:'30岁后不下滑',color:'#22c55e'},
-  iron:      {name:'钢铁之躯',type:'legacy',desc:'训练不加疲劳',color:'#64748b'}
+// ══════════════════════════════════════════════════════
+//  三级特质库 (Trait Library v6)
+// ══════════════════════════════════════════════════════
+
+// A. 【常规特质】—— 路人选手20%概率获得1个
+const NORMAL_TRAITS={
+  headshot:{
+    name:'爆头机器', tier:'normal', color:'#ef4444', badge:'🎯',
+    desc:'步枪局（Full Buy）击杀权重+15%；触发击杀在日志高亮',
+    roundMult(buy){return buy.lvl==='Full'?0.03:0;},
+    microWeightMult:1.25
+  },
+  bigHeart:{
+    name:'大心脏', tier:'normal', color:'#f97316', badge:'💪',
+    desc:'残局1vX时Clutch成功率+40%，成功必定日志高亮',
+    clutchBonus:0.40
+  },
+  volatile:{
+    name:'神经刀', tier:'normal', color:'#a855f7', badge:'⚡',
+    desc:'每回合战力随机乘0.75~1.35，极高上限与极低下限',
+    volatileMin:0.75, volatileMax:1.35
+  },
+  leader:{
+    name:'领袖', tier:'normal', color:'#eab308', badge:'📣',
+    desc:'担任IGL时全队回合战力+4%；首次触发日志播报',
+    roundMult(role){return role==='IGL'?0.04:0;}
+  }
 };
-const LEGEND_TRAITS={
-  legend_core:   {name:'绝对核心',  desc:'队友全灭时全属性+20%',color:'#ffd700',tier:'generic'},
-  legend_winner: {name:'天生赢家',  desc:'半决赛/决赛Rating不低于1.10',color:'#ffd700',tier:'generic'},
-  sig_s1mple:    {name:'天外飞仙',  desc:'落后4分以上时接管比赛，多杀概率翻倍',color:'#ffd700',owner:'s1mple'},
-  sig_zywoo:     {name:'载物领域',  desc:'不吃负面士气影响，残局胜率大幅提升',color:'#ffd700',owner:'ZyWoO'},
-  sig_karrigan:  {name:'战术大脑',  desc:'上场时无视Synergy惩罚，全队战力×1.1',color:'#ffd700',owner:'karrigan'},
-  sig_gla1ve:    {name:'战术大脑',  desc:'上场时无视Synergy惩罚，全队战力×1.1',color:'#ffd700',owner:'gla1ve'},
-  sig_f0rest:    {name:'不老神话',  desc:'30岁后能力永久不下滑',color:'#ffd700',owner:'f0rest'}
+
+// B. 【通用传奇特质】—— 仅 Regen Legend (0.5%) 可抽取
+const GENERIC_LEGEND_TRAITS={
+  legend_core:{
+    name:'绝对核心', tier:'legend_generic', color:'#ffd700', badge:'💎',
+    desc:'1vX残局时个人战力+20%，强制尝试Clutch；金字高亮播报',
+    clutchPowerBonus:0.20
+  },
+  legend_winner:{
+    name:'天生赢家', tier:'legend_generic', color:'#ffd700', badge:'🏆',
+    desc:'半决赛/决赛阶段，赛后Rating强制≥1.10；触发时金字高亮播报',
+    minRatingInFinals:1.10
+  }
+};
+
+// C. 【历史专属签名特质】—— 唯一绑定特定真实选手
+const SIGNATURE_TRAITS={
+  sig_s1mple:{
+    name:'天外飞仙', tier:'signature', color:'#ff6b35', badge:'👑',
+    owner:'s1mple', ownerDisplay:'s1mple',
+    desc:'【s1mple专属】落后≥4分时自动接管：战力+20%，多杀概率翻倍；首次触发金字播报',
+    powerBonus:0.20, multiKillMult:2.0, gapTrigger:4
+  },
+  sig_zywoo:{
+    name:'载物领域', tier:'signature', color:'#00d4ff', badge:'🌀',
+    owner:'ZyWoO', ownerDisplay:'ZyWoO',
+    desc:'【ZyWoO专属】免疫负面状态；手枪局战力不打折扣；1vX残局Clutch+55%',
+    immuneNegative:true, pistolFullPower:true, clutchBonus:0.55
+  },
+  sig_karrigan:{
+    name:'战术大脑', tier:'signature', color:'#a78bfa', badge:'🧠',
+    owner:'karrigan', ownerDisplay:'karrigan',
+    desc:'【karrigan专属】上场时无视Synergy惩罚（强制≥1.0），全队战力×1.1',
+    ignoreSynergyPenalty:true, teamPowerMult:1.1
+  },
+  sig_gla1ve:{
+    name:'战术大脑', tier:'signature', color:'#a78bfa', badge:'🧠',
+    owner:'gla1ve', ownerDisplay:'gla1ve',
+    desc:'【gla1ve专属】上场时无视Synergy惩罚（强制≥1.0），全队战力×1.1',
+    ignoreSynergyPenalty:true, teamPowerMult:1.1
+  },
+  sig_f0rest:{
+    name:'不老神话', tier:'signature', color:'#34d399', badge:'🌲',
+    owner:'f0rest', ownerDisplay:'f0rest',
+    desc:'【f0rest专属】30岁后能力值永久不受年龄影响，拒绝下滑',
+    agelessAfter:30
+  }
+};
+
+// 统一查询接口（向后兼容 TRAITS / LEGEND_TRAITS 引用）
+const ALL_TRAITS={...NORMAL_TRAITS,...GENERIC_LEGEND_TRAITS,...SIGNATURE_TRAITS};
+const TRAITS=ALL_TRAITS;
+const LEGEND_TRAITS=ALL_TRAITS;
+
+// 常量键列表
+const NORMAL_TRAIT_KEYS=Object.keys(NORMAL_TRAITS);       // ['headshot','bigHeart','volatile','leader']
+const GENERIC_LEGEND_KEYS=Object.keys(GENERIC_LEGEND_TRAITS); // ['legend_core','legend_winner']
+
+// 特质层级判断
+const traitTier=k=>{if(SIGNATURE_TRAITS[k])return'signature';if(GENERIC_LEGEND_TRAITS[k])return'legend_generic';return'normal';};
+const isSignatureTrait=k=>!!SIGNATURE_TRAITS[k];
+const isAnyLegendTrait=k=>!!GENERIC_LEGEND_TRAITS[k]||!!SIGNATURE_TRAITS[k];
+
+// 特质徽章渲染（分级配色+动画）
+const renderTraitBadge=(key,withTooltip=true)=>{
+  const T=ALL_TRAITS[key];if(!T)return'';
+  const tier=T.tier||'normal';
+  let cls,style;
+  if(tier==='signature'){
+    cls='trait-sig';
+    style=`background:linear-gradient(135deg,${T.color}33,${T.color}66);border:1px solid ${T.color};color:${T.color};`;
+  }else if(tier==='legend_generic'){
+    cls='trait-legend';
+    style=`background:rgba(255,215,0,0.15);border:1px solid #ffd700;color:#ffd700;`;
+  }else{
+    cls='trait-normal';
+    style=`background:${T.color}22;border:1px solid ${T.color}66;color:${T.color};`;
+  }
+  const tip=withTooltip?` title="${T.name}：${T.desc}"`:'';
+  return`<span class="${cls}" style="${style}"${tip}>${T.badge||''} ${T.name}</span>`;
 };
 const RARITY={
   common:  {name:'普通',color:'#fff',   border:'1px solid var(--border)'},
@@ -500,11 +609,16 @@ const HISTORICAL_DATA={
       {name:'mTw',      rating:85,players:['elemeNt']}
     ],
     players:{
-      HeatoN: {name:'HeatoN', role:'Entry', rating:92,age:20,country:'Sweden',countryCode:'SE',realName:'Emil Christensen'},
-      Potti:  {name:'Potti',  role:'Rifler',rating:90,age:21,country:'Sweden',countryCode:'SE',realName:'Tommy Ingemarsson'},
-      SpawN:  {name:'SpawN',  role:'Rifler',rating:89,age:19,country:'Sweden',countryCode:'SE',realName:'Abdisamad Mohamed'},
-      elemeNt:{name:'elemeNt',role:'IGL',   rating:88,age:20,country:'Norway',countryCode:'NO',realName:'Ola Moum'},
-      Ksharp: {name:'Ksharp', role:'Sniper',rating:87,age:22,country:'USA',   countryCode:'US',realName:'Kyle Miller'}
+      HeatoN: {name:'HeatoN', role:'Entry', rating:92,age:20,country:'Sweden',countryCode:'SE',realName:'Emil Christensen',
+                normalTraits:['headshot','bigHeart']},
+      Potti:  {name:'Potti',  role:'Rifler',rating:90,age:21,country:'Sweden',countryCode:'SE',realName:'Tommy Ingemarsson',
+                normalTraits:['headshot','volatile']},
+      SpawN:  {name:'SpawN',  role:'Rifler',rating:89,age:19,country:'Sweden',countryCode:'SE',realName:'Abdisamad Mohamed',
+                normalTraits:['bigHeart','headshot']},
+      elemeNt:{name:'elemeNt',role:'IGL',   rating:88,age:20,country:'Norway',countryCode:'NO',realName:'Ola Moum',
+                normalTraits:['leader','bigHeart']},
+      Ksharp: {name:'Ksharp', role:'Sniper',rating:87,age:22,country:'USA',   countryCode:'US',realName:'Kyle Miller',
+                normalTraits:['headshot','volatile']}
     }
   },
   era2012:{
@@ -516,11 +630,16 @@ const HISTORICAL_DATA={
       {name:'NiP',       rating:93,players:['GeT_RiGhT','f0rest']}
     ],
     players:{
-      GeT_RiGhT:  {name:'GeT_RiGhT',  role:'Lurker',rating:95,age:22,country:'Sweden',countryCode:'SE',realName:'Christopher Alesund'},
-      f0rest:     {name:'f0rest',      role:'Rifler',rating:93,age:24,country:'Sweden',countryCode:'SE',realName:'Patrik Lindberg',signatureTrait:'sig_f0rest'},
-      JW:         {name:'JW',          role:'Sniper',rating:90,age:20,country:'Sweden',countryCode:'SE',realName:'Jesper Wecksell'},
-      KennyS:     {name:'KennyS',      role:'Sniper',rating:94,age:18,country:'France',countryCode:'FR',realName:'Kenny Schrub'},
-      pashaBiceps:{name:'pashaBiceps', role:'Rifler',rating:90,age:24,country:'Poland',countryCode:'PL',realName:'Jarosław Jarząbkowski'}
+      GeT_RiGhT:  {name:'GeT_RiGhT',  role:'Lurker',rating:95,age:22,country:'Sweden',countryCode:'SE',realName:'Christopher Alesund',
+                    normalTraits:['bigHeart','headshot']},
+      f0rest:     {name:'f0rest',      role:'Rifler',rating:93,age:24,country:'Sweden',countryCode:'SE',realName:'Patrik Lindberg',
+                    signatureTrait:'sig_f0rest', normalTraits:['headshot','bigHeart']},
+      JW:         {name:'JW',          role:'Sniper',rating:90,age:20,country:'Sweden',countryCode:'SE',realName:'Jesper Wecksell',
+                    normalTraits:['volatile','headshot']},
+      KennyS:     {name:'KennyS',      role:'Sniper',rating:94,age:18,country:'France',countryCode:'FR',realName:'Kenny Schrub',
+                    normalTraits:['headshot','bigHeart']},
+      pashaBiceps:{name:'pashaBiceps', role:'Rifler',rating:90,age:24,country:'Poland',countryCode:'PL',realName:'Jarosław Jarząbkowski',
+                    normalTraits:['bigHeart','volatile']}
     }
   },
   era2020:{
@@ -531,11 +650,21 @@ const HISTORICAL_DATA={
       {name:'Astralis',rating:90,players:['dev1ce']}
     ],
     players:{
-      s1mple:{name:'s1mple',role:'Sniper',rating:97,age:23,country:'Ukraine',countryCode:'UA',realName:'Oleksandr Kostyliev',debutYear:2014,debutAge:16,firstTeamId:'NAVI',signatureTrait:'sig_s1mple'},
-      ZywOo: {name:'ZyWoO', role:'Sniper',rating:96,age:20,country:'France', countryCode:'FR',realName:'Mathieu Herbaut',   debutYear:2018,debutAge:17,firstTeamId:'Vitality',signatureTrait:'sig_zywoo'},
-      NiKo:  {name:'NiKo',  role:'Rifler',rating:94,age:23,country:'Bosnia & Herzegovina',countryCode:'BA',realName:'Nikola Kovač',debutYear:2013,debutAge:16,firstTeamId:'G2'},
-      dev1ce:{name:'dev1ce',role:'Sniper',rating:93,age:24,country:'Denmark',countryCode:'DK',realName:'Nicolai Reedtz',   debutYear:2012,debutAge:17,firstTeamId:'Astralis'},
-      donk:  {name:'donk',  role:'Rifler',rating:95,age:19,country:'Russia', countryCode:'RU',realName:'Danil Kryshkovets',debutYear:2023,debutAge:16,firstTeamId:'Spirit'}
+      s1mple:{name:'s1mple',role:'Sniper',rating:97,age:23,country:'Ukraine',countryCode:'UA',realName:'Oleksandr Kostyliev',
+               debutYear:2014,debutAge:16,firstTeamId:'NAVI',
+               signatureTrait:'sig_s1mple', normalTraits:['bigHeart','headshot']},
+      ZywOo: {name:'ZyWoO', role:'Sniper',rating:96,age:20,country:'France', countryCode:'FR',realName:'Mathieu Herbaut',
+               debutYear:2018,debutAge:17,firstTeamId:'Vitality',
+               signatureTrait:'sig_zywoo',  normalTraits:['headshot','bigHeart']},
+      NiKo:  {name:'NiKo',  role:'Rifler',rating:94,age:23,country:'Bosnia & Herzegovina',countryCode:'BA',realName:'Nikola Kovač',
+               debutYear:2013,debutAge:16,firstTeamId:'G2',
+               normalTraits:['headshot','volatile']},
+      dev1ce:{name:'dev1ce',role:'Sniper',rating:93,age:24,country:'Denmark',countryCode:'DK',realName:'Nicolai Reedtz',
+               debutYear:2012,debutAge:17,firstTeamId:'Astralis',
+               normalTraits:['bigHeart','headshot']},
+      donk:  {name:'donk',  role:'Rifler',rating:95,age:19,country:'Russia', countryCode:'RU',realName:'Danil Kryshkovets',
+               debutYear:2023,debutAge:16,firstTeamId:'Spirit',
+               normalTraits:['volatile','headshot']}
     }
   }
 };
@@ -603,13 +732,30 @@ const World={
     const rarity=cfg.rarity||(rating>=90?'legend':rating>=80?'rare':'uncommon');
     const handle=cfg.handle||cfg.name;
     const realName=cfg.realName||null;
+
+    // ── 特质组装：签名特质（唯一）+ HISTORICAL_DATA 预设常规特质
     const myTraits=[];
-    if(cfg.signatureTrait)myTraits.push(cfg.signatureTrait);
-    const normalKeys=['headshot','bigHeart','volatile','leader'];
-    if(cfg.role==='Sniper'||cfg.role==='Rifler')myTraits.includes('headshot')||myTraits.push('headshot');
-    if(cfg.role==='Lurker')myTraits.includes('bigHeart')||myTraits.push('bigHeart');
-    if(cfg.role==='IGL')myTraits.includes('leader')||myTraits.push('leader');
-    while([...myTraits].filter(t=>TRAITS[t]&&TRAITS[t].type==='normal').length<2)myTraits.push(pick(normalKeys));
+    // C. 签名特质（优先，唯一性保证）
+    if(cfg.signatureTrait&&SIGNATURE_TRAITS[cfg.signatureTrait]){
+      myTraits.push(cfg.signatureTrait);
+    }
+    // A. HISTORICAL_DATA 配置的 normalTraits（最多2个，去重）
+    const presetNormals=cfg.normalTraits||[];
+    for(const t of presetNormals){
+      if(NORMAL_TRAITS[t]&&!myTraits.includes(t))myTraits.push(t);
+      if(myTraits.filter(x=>NORMAL_TRAITS[x]).length>=2)break;
+    }
+    // 若 normalTraits 不足2个，按角色补足
+    if(myTraits.filter(x=>NORMAL_TRAITS[x]).length<2){
+      const roleDefault={Sniper:'headshot',Rifler:'headshot',Entry:'bigHeart',Lurker:'bigHeart',IGL:'leader'};
+      const fallback=roleDefault[cfg.role]||'headshot';
+      if(!myTraits.includes(fallback))myTraits.push(fallback);
+      if(myTraits.filter(x=>NORMAL_TRAITS[x]).length<2){
+        const extra=NORMAL_TRAIT_KEYS.find(k=>!myTraits.includes(k))||'volatile';
+        myTraits.push(extra);
+      }
+    }
+
     return{
       id:'real_'+cfg.name+'_'+rnd(1000,9999),
       name:handle+(realName?` (${realName})`:''),
@@ -658,32 +804,47 @@ const World={
     }
   },
   mkP(min,max,ai=false,forceRole=null,birthYear=2000){
-    const isLegend=!ai&&Math.random()<0.005;
+    // Regen Legend 仅在非AI路人选手中触发（0.5%）
+    const isRegenLegend=!ai&&Math.random()<0.005;
     let rating,pot,age;
-    if(isLegend){rating=rnd(90,99);age=rnd(18,22);pot=99;}
+    if(isRegenLegend){rating=rnd(90,99);age=rnd(18,22);pot=99;}
     else{rating=rnd(min,max);age=rnd(16,30);pot=Math.min(99,rating+(age<=20?rnd(10,25):age<=25?rnd(5,12):rnd(0,3)));}
     let rarity='common';
-    if(isLegend)rarity='legend';
+    if(isRegenLegend)rarity='legend';
     else if(rating>=85)rarity='rare';
     else if(rating>=75)rarity='uncommon';
+
+    // ── 特质分配（三级）
     const myTraits=[];
-    const normalKeys=['headshot','bigHeart','volatile','leader'];
-    const legendGenericKeys=['legend_core','legend_winner'];
-    if(isLegend){myTraits.push(pick(legendGenericKeys));for(let i=0;i<2;i++)myTraits.push(pick(normalKeys));}
-    else if(Math.random()<.2){myTraits.push(pick(normalKeys));}
+    if(ai){
+      // AI 队员无特质（简化逻辑，AI队伍不需要特质加成）
+    }else if(isRegenLegend){
+      // B. 通用传奇特质：1个传奇 + 2个常规（去重）
+      myTraits.push(pick(GENERIC_LEGEND_KEYS));
+      const pool=NORMAL_TRAIT_KEYS.filter(k=>!myTraits.includes(k));
+      myTraits.push(pick(pool));
+      const pool2=NORMAL_TRAIT_KEYS.filter(k=>!myTraits.includes(k));
+      if(pool2.length)myTraits.push(pick(pool2));
+    }else if(Math.random()<0.20){
+      // A. 普通路人：20%概率获得1个常规特质
+      myTraits.push(pick(NORMAL_TRAIT_KEYS));
+    }
+
     const ident=this.genRandomIdentity();
-    return{
+    const obj={
       id:(ai?'ai_':'p_')+rnd(10000,99999),
       name:ident.name,role:forceRole||pick(Object.keys(ROLES)),
       rating,potential:pot,age,form:1.0,
       price:rating*40+(rating+(pot-rating))*20+rnd(0,500),
-      salary:Math.floor(rating*rating/10)*(isLegend?2:1),
+      salary:Math.floor(rating*rating/10)*(isRegenLegend?2:1),
       teamId:null,rarity,traits:[...new Set(myTraits)],
       maps:MapUtils.genPlayerMaps(birthYear),
       ys:{matches:0,ratingSum:0,mvps:0,majorWins:0,wins:0},
       history:[],_ageDecayYear:null,
-      country:ident.country,countryCode:ident.countryCode,handle:ident.handle
+      country:ident.country,countryCode:ident.countryCode,handle:ident.handle,
+      isRegenLegend // 标记，用于UI金色边框
     };
+    return obj;
   },
   mkCoach(ai=false){
     const tactics=rnd(ai?50:45,ai?85:80),yr=rnd(1995,2010);
@@ -724,12 +885,14 @@ const Market={
     el.innerHTML=this.pList.map(p=>{
       const pool=MapUtils.poolForYear(yr);
       const myMaps=(p.maps||[]).filter(m=>pool.includes(m.map));
-      const traitBadges=(p.traits||[]).map(t=>{const T=TRAITS[t]||LEGEND_TRAITS[t];return T?`<span style="background:${T.color};font-size:9px;padding:2px 4px;border-radius:3px;margin-right:2px;color:#fff" title="${T.desc}">${T.name}</span>`:''}).join('');
+      const traitBadges=(p.traits||[]).map(t=>renderTraitBadge(t)).join('');
       const rar=RARITY[p.rarity||'common'];
-      return`<div class="card" onclick="UI.showPlayer('${p.id}')" style="cursor:pointer;border:${rar.border};${rar.shadow?`box-shadow:${rar.shadow}`:''}">
+      const legendClass=p.isRegenLegend?'regen-legend':'';
+      const nameStyle=p.rarity==='legend'||p.isRegenLegend?'color:#ffd700;font-weight:700':'';
+      return`<div class="card ${legendClass}" onclick="UI.showPlayer('${p.id}')" style="cursor:pointer;border:${rar.border};${rar.shadow?`box-shadow:${rar.shadow}`:''}">
         <span class="rbadge" style="background:${ROLES[p.role].color}">${ROLES[p.role].zh}</span>
-        <div class="cname" style="${rar.name==='传奇'?'color:#ffd700;font-weight:700':''}">${p.name} <span style="font-size:10px;color:var(--dim)">(${p.age}岁)</span></div>
-        <div style="margin:2px 0">${traitBadges}</div>
+        <div class="cname" style="${nameStyle}">${p.name} <span style="font-size:10px;color:var(--dim)">(${p.age}岁)</span></div>
+        <div style="margin:4px 0 6px;min-height:18px">${traitBadges}</div>
         <div class="cstat"><span>能力值</span><b>${p.rating}</b></div>
         <div class="cstat"><span>潜力</span><b style="color:${p.potential>=85?'var(--gold)':p.potential>=75?'var(--win)':'var(--dim)'}">${p.potential}</b></div>
         <div class="cstat"><span>买断费</span><b style="color:#86efac">$${p.price.toLocaleString()}</b></div>
@@ -755,7 +918,7 @@ const Market={
 
 // ─── SaveManager ─────────────────────────────────────
 const SaveManager={
-  key:'cs_legends_save_v5',
+  key:'cs_legends_save_v6',
   save(){
     try{
       const data={date:Game.date.toISOString(),money:Game.money,fans:Game.fans,roster:Game.roster,coach:Game.coach,trophies:Game.trophies||[],news:Game.news||[],bankruptcyDays:Game.bankruptcyDays||0};
@@ -903,7 +1066,8 @@ const Game={
       if(seen.has(p.id))return;seen.add(p.id);
       p.age++;
       if(p.age>30){
-        if((p.traits||[]).includes('evergreen')||(p.traits||[]).includes('sig_f0rest'))return;
+        // 不老神话（f0rest签名特质）：永久免疫年龄下滑
+        if((p.traits||[]).includes('sig_f0rest'))return;
         if(p.age<=34&&Math.random()<.15){
           const drop=rnd(1,2);p.rating=Math.max(40,p.rating-drop);p.potential=Math.max(p.rating,p.potential-1);
           if(p.teamId==='PLAYER')UI.toast(`⚠ ${p.name} 年龄增长，状态下滑（-${drop}）`);
@@ -1489,7 +1653,11 @@ const Match={
       kills:0,assists:0,deaths:0,dmg:0,
       entryK:0,entryA:0,clutch:0,kastR:0,multiK:0,
       rating2:0,score:0,impact:0,adr:0,kast:0,
-      _legendFlyUsed:false
+      // 特质触发状态（每张地图重置）
+      _legendFlyUsed:false,   // 天外飞仙：首次播报
+      _s1mpleActive:false,    // 天外飞仙：本回合是否激活
+      _leaderLogged:false,    // 领袖：首次播报
+      _tactBrainLogged:false  // 战术大脑：首次播报
     });
 
     const mapBonusP=MapUtils.teamMapStr(Game.roster,Game.coach,map)/100-.5;
@@ -1576,23 +1744,65 @@ const Match={
     const calcTraitMult=(team,isTeamA,buyInfo)=>{
       let mult=1;
       const myScore=isTeamA?s.sA:s.sB,oppScore=isTeamA?s.sB:s.sA;
-      const isMatchPoint=myScore===s.target-1;
-      const isWinningBig=(myScore-oppScore)>5;
-      const mapBonus=isTeamA?s.mapBonusP:s.mapBonusAI;
+      const scoreDiff=myScore-oppScore; // 正=领先，负=落后
+
       team.forEach(p=>{
         const ts=p.ref.traits||[];
+
+        // ── A. 常规特质 ──────────────────────────────────────
+        // 爆头机器：步枪局战力+3%
         if(ts.includes('headshot')&&buyInfo.lvl==='Full')mult+=0.03;
-        if(ts.includes('leader')&&p.role==='IGL')mult+=0.04;
-        if(ts.includes('volatile'))mult*=(0.9+Math.random()*0.3);
-        if(ts.includes('magician')&&(pistol||buyInfo.lvl==='Eco'))mult+=0.06;
-        if(ts.includes('adaptive')&&mapBonus<0)mult+=0.05;
-        if(ts.includes('cold')&&isMatchPoint)mult+=0.02;
-        if(ts.includes('joker')&&isWinningBig&&Math.random()<.05)mult-=0.10;
-        if(ts.includes('sig_s1mple')&&(isTeamA?s.sA-s.sB:s.sB-s.sA)<=-4){
-          mult+=0.15;
-          if(!p._legendFlyUsed){p._legendFlyUsed=true;UI.log(`⚡ <span style="color:#ffd700;font-weight:700">[LEGEND] ${p.name}</span> 开启天外飞仙，接管比赛！`,'spec');}
+        // 领袖：IGL上场全队+4%，首次触发日志
+        if(ts.includes('leader')&&p.role==='IGL'){
+          mult+=0.04;
+          if(!p._leaderLogged){
+            p._leaderLogged=true;
+            UI.log(`📣 <span style="color:#eab308;font-weight:700">[领袖] ${p.name}</span> 鼓舞士气，全队战力提升！`,'spec');
+          }
         }
-        if(ts.includes('sig_zywoo'))mult+=0.02;
+        // 神经刀：每回合随机波动
+        if(ts.includes('volatile')){
+          const volatileMult=NORMAL_TRAITS.volatile.volatileMin+Math.random()*(NORMAL_TRAITS.volatile.volatileMax-NORMAL_TRAITS.volatile.volatileMin);
+          mult*=volatileMult;
+        }
+
+        // ── C. 历史专属签名特质 ──────────────────────────────
+        // 天外飞仙（s1mple）：落后≥4分时战力+20%，多杀概率翻倍
+        if(ts.includes('sig_s1mple')&&scoreDiff<=-SIGNATURE_TRAITS.sig_s1mple.gapTrigger){
+          mult+=SIGNATURE_TRAITS.sig_s1mple.powerBonus;
+          p._s1mpleActive=true; // 供 _micro 使用
+          if(!p._legendFlyUsed){
+            p._legendFlyUsed=true;
+            UI.log(
+              `<span style="color:#ff6b35;font-size:13px">★</span> `+
+              `<span style="color:#ffd700;font-weight:900">[★签名·天外飞仙] ${p.name}</span> `+
+              `<span style="color:#ff9500">队伍落后，接管比赛！多杀概率翻倍！</span>`,
+              'sig-trigger'
+            );
+          }
+        }else{p._s1mpleActive=false;}
+
+        // 载物领域（ZyWoO）：免负面，手枪局不折扣（此处通过 buyMult 补正）
+        if(ts.includes('sig_zywoo')){
+          // 手枪局本应 ×0.95，此特质强制恢复
+          if(pistol&&buyInfo.lvl==='Eco')mult+=(1/0.95-1);
+          // 状态不受负面影响（form 强制≥1.0）
+          if(p.form<1.0)p.form=1.0;
+        }
+
+        // 战术大脑（karrigan/gla1ve）：效果在 Game.power() 已处理，此处日志提示
+        if(ts.includes('sig_karrigan')||ts.includes('sig_gla1ve')){
+          if(!p._tactBrainLogged){
+            p._tactBrainLogged=true;
+            const sigKey=ts.includes('sig_karrigan')?'sig_karrigan':'sig_gla1ve';
+            UI.log(
+              `<span style="color:#a78bfa;font-size:13px">★</span> `+
+              `<span style="color:#ffd700;font-weight:900">[★签名·战术大脑] ${p.name}</span> `+
+              `<span style="color:#c4b5fd">战术统御，无视Synergy惩罚！全队×1.1</span>`,
+              'sig-trigger'
+            );
+          }
+        }
       });
       return mult;
     };
@@ -1630,44 +1840,116 @@ const Match={
 
   _micro(win,lose){
     const s=this.s;
+    // gp = 加权随机选取选手（爆头机器有更高权重）
     const gp=(team,opp)=>{
-      let t=team.reduce((s,p)=>s+p.rating*p.form,0),r=Math.random()*t;
+      let total=team.reduce((sum,p)=>{
+        let w=p.rating*p.form;
+        if(opp.some(x=>x.ref.rarity==='legend')&&p.ref.rarity!=='legend')w*=0.95;
+        if((p.ref.traits||[]).includes('headshot'))w*=NORMAL_TRAITS.headshot.microWeightMult;
+        return sum+w;
+      },0);
+      let r=Math.random()*total;
       for(const p of team){
         let w=p.rating*p.form;
-        if(p.ref.rarity!=='legend'&&opp.some(x=>x.ref.rarity==='legend'))w*=0.95;
-        if((p.ref.traits||[]).includes('headshot'))w*=1.25;
+        if(opp.some(x=>x.ref.rarity==='legend')&&p.ref.rarity!=='legend')w*=0.95;
+        if((p.ref.traits||[]).includes('headshot'))w*=NORMAL_TRAITS.headshot.microWeightMult;
         r-=w;if(r<=0)return p;
       }
       return team[0];
     };
+
     const logKill=(k,v,isEntry)=>{
       const kt=s.tA.includes(k)?'CT':'T',vt=s.tA.includes(v)?'CT':'T';
       const kc=kt==='CT'?'var(--ct)':'var(--t)',vc=vt==='CT'?'var(--ct)':'var(--t)';
-      const kName=k.ref.rarity==='legend'?`<span style="color:#ffd700;font-weight:700">${k.name}</span>`:k.name;
-      const vName=v.ref.rarity==='legend'?`<span style="color:#ffd700;font-weight:700">${v.name}</span>`:v.name;
-      const kIcons=((k.ref.rarity==='legend'?'👑':'')+((k.ref.traits||[]).includes('headshot')?'🎯':''));
+      const hasSig=k.ref.traits&&k.ref.traits.some(t=>isSignatureTrait(t));
+      const hasLegT=k.ref.traits&&k.ref.traits.some(t=>isAnyLegendTrait(t));
+      const kName=hasSig
+        ?`<span style="color:#ffd700;font-weight:900;text-shadow:0 0 6px rgba(255,215,0,0.5)">${k.name}</span>`
+        :hasLegT?`<span style="color:#ffd700;font-weight:700">${k.name}</span>`
+        :k.ref.rarity==='legend'?`<span style="color:#ffd700;font-weight:700">${k.name}</span>`
+        :k.name;
+      const vName=v.ref.rarity==='legend'||isAnyLegendTrait((v.ref.traits||[])[0])
+        ?`<span style="color:#ffd700">${v.name}</span>`:v.name;
+      const kIcons=[
+        k.ref.rarity==='legend'?'👑':'',
+        (k.ref.traits||[]).includes('headshot')&&Math.random()<0.4?'🎯':'',  // 爆头机器高亮
+        hasSig?'★':''
+      ].filter(Boolean).join('');
       UI.log(`<span style="color:${kc}">[${kt}] ${kName}</span> ${kIcons} ${isEntry?'💥':'🔫'} <span style="color:${vc}">[${vt}] ${vName}</span>`,'');
     };
+
     const entry=win.find(p=>p.role==='Entry')||gp(win,lose),victim=gp(lose,win);
     entry.entryA++;victim.entryA++;
     let ek,ev;
     if(Math.random()<.65){entry.entryK++;entry.kills++;victim.deaths++;entry.dmg+=100;ek=entry;ev=victim;}
     else{victim.entryK++;victim.kills++;entry.deaths++;victim.dmg+=100;ek=victim;ev=entry;}
     if(Math.random()<.5)logKill(ek,ev,true);
-    const wk=Math.floor(Math.random()*2)+4,lk=Math.floor(Math.random()*4);
+
+    // 天外飞仙多杀加成：wk基础+50%（四舍五入）
+    let wk=Math.floor(Math.random()*2)+4;
+    const s1mpleWinner=win.find(p=>(p.ref.traits||[]).includes('sig_s1mple')&&p._s1mpleActive);
+    if(s1mpleWinner)wk=Math.round(wk*SIGNATURE_TRAITS.sig_s1mple.multiKillMult*0.6); // 综合多杀概率
+    const lk=Math.floor(Math.random()*4);
+
     const km=new Map();
-    const addK=(k,v)=>{k.kills++;v.deaths++;k.dmg+=80+Math.random()*40;km.set(k,(km.get(k)||0)+1);if(Math.random()<.25)logKill(k,v,false);if(Math.random()<.5){const a=gp(win.includes(k)?win:lose,win.includes(k)?lose:win);if(a!==k){a.assists++;a.dmg+=30+Math.random()*30;}}};
+    const addK=(k,v)=>{
+      k.kills++;v.deaths++;k.dmg+=80+Math.random()*40;
+      km.set(k,(km.get(k)||0)+1);
+      if(Math.random()<.25)logKill(k,v,false);
+      if(Math.random()<.5){const a=gp(win.includes(k)?win:lose,win.includes(k)?lose:win);if(a!==k){a.assists++;a.dmg+=30+Math.random()*30;}}
+    };
     for(let i=1;i<wk;i++)addK(gp(win,lose),gp(lose,win));
     for(let i=(entry.deaths>0?1:0);i<lk;i++)addK(gp(lose,win),gp(win,lose));
     for(const[p,k]of km)if(k>=2)p.multiK++;
-    if(lk>=4){
-      const sv=gp(win,lose);const ts=sv.ref.traits||[];
-      const isZywoo=ts.includes('sig_zywoo'),hasCore=ts.includes('legend_core');
+
+    // ── 残局判定（lk>=3：对方还有3人以上，1vX场景）
+    if(lk>=3){
+      const sv=gp(win,lose);
+      const ts=sv.ref.traits||[];
       const st=s.tA.includes(sv)?'CT':'T',sc=st==='CT'?'var(--ct)':'var(--t)';
-      if(isZywoo&&Math.random()<.55){sv.clutch++;UI.log(`🔥 <span style="color:${sc};font-weight:900">[${st}] ${sv.name}</span> 开启载物领域！`,'spec');}
-      else if(hasCore&&Math.random()<.5){sv.clutch++;UI.log(`💫 <span style="color:${sc};font-weight:900">[${st}] ${sv.name}</span> 触发绝对核心！`,'spec');}
-      else if(Math.random()<.4){sv.clutch++;UI.log(`🔥 <span style="color:${sc};font-weight:900">[${st}] ${sv.name}</span> 极限1vX残局！`,'spec');}
+
+      // 计算该选手的基础clutch成功率
+      let clutchChance=0.35;
+      let clutchMsg='';
+      let clutchType='normal'; // normal / legend / sig
+
+      // 签名特质：载物领域（ZyWoO）
+      if(ts.includes('sig_zywoo')){
+        clutchChance=0.35+SIGNATURE_TRAITS.sig_zywoo.clutchBonus;
+        clutchMsg=`<span style="color:#ffd700;font-size:13px">★</span> `+
+          `<span style="color:#ffd700;font-weight:900">[★签名·载物领域] ${sv.name}</span> `+
+          `<span style="color:#00d4ff">域展开，Clutch胜率+55%！</span>`;
+        clutchType='sig';
+      }
+      // 传奇特质：绝对核心
+      else if(ts.includes('legend_core')){
+        clutchChance=0.35+GENERIC_LEGEND_TRAITS.legend_core.clutchPowerBonus+0.15;
+        clutchMsg=`<span style="color:#a78bfa;font-size:13px">✦</span> `+
+          `<span style="color:#ffd700;font-weight:900">[✦传奇·绝对核心] ${sv.name}</span> `+
+          `<span style="color:#c4b5fd">全属性爆发，单挑多人！</span>`;
+        clutchType='legend';
+      }
+      // 常规特质：大心脏
+      else if(ts.includes('bigHeart')){
+        clutchChance=0.35+NORMAL_TRAITS.bigHeart.clutchBonus;
+        clutchMsg=`💪 <span style="color:#f97316;font-weight:700">[大心脏] <span style="color:${sc}">${sv.name}</span></span> 临危不惧，Clutch！`;
+        clutchType='normal';
+      }
+      // 无特质：普通概率
+      else{
+        clutchChance=0.35;
+        clutchMsg=`🔥 <span style="color:${sc};font-weight:900">[${st}] ${sv.name}</span> 极限1vX残局！`;
+        clutchType='normal';
+      }
+
+      if(Math.random()<clutchChance){
+        sv.clutch++;
+        if(clutchType==='sig')UI.log(clutchMsg,'sig-trigger');
+        else if(clutchType==='legend')UI.log(clutchMsg,'legend-trigger');
+        else UI.log(clutchMsg,'spec');
+      }
     }
+
     [...win,...lose].forEach(p=>{if((km.get(p)||0)>0||Math.random()<.3||(win.includes(p)&&Math.random()<.8))p.kastR++;});
   },
 
@@ -1690,8 +1972,14 @@ const Match={
       p.kast=((p.kastR/Math.max(1,s.round))*100).toFixed(1);
       p.impact=Math.max(.5,(p.multiK*.4+p.entryK*.25+p.clutch*.6)).toFixed(2);
       let raw=((p.kills+p.assists*.3)/Math.max(1,p.deaths))*.45+(p.adr/100)*.2+(p.kast/100)*.2+parseFloat(p.impact)*.15;
-      if(isSemiOrFinal&&(p.ref.traits||[]).includes('legend_winner')&&raw<1.10){
-        raw=1.10;UI.log(`✨ <span style="color:#ffd700;font-weight:700">[LEGEND] ${p.name}</span> 触发天生赢家！`,'spec');
+      if(isSemiOrFinal&&(p.ref.traits||[]).includes('legend_winner')&&raw<GENERIC_LEGEND_TRAITS.legend_winner.minRatingInFinals){
+        raw=GENERIC_LEGEND_TRAITS.legend_winner.minRatingInFinals;
+        UI.log(
+          `<span style="color:#a78bfa;font-size:13px">✦</span> `+
+          `<span style="color:#ffd700;font-weight:900">[✦传奇·天生赢家] ${p.name}</span> `+
+          `<span style="color:#c4b5fd">大赛精神爆发，Rating强制≥1.10！</span>`,
+          'legend-trigger'
+        );
       }
       p.rating2=raw.toFixed(2);
       const cs=p.clutch*.5,es=p.entryA>0?p.entryK/p.entryA:0;
@@ -1831,12 +2119,14 @@ const UI={
     el.innerHTML=Game.roster.map(p=>{
       const myMaps=(p.maps||[]).filter(m=>pool.includes(m.map));
       const ageWarn=p.age>=32?`<div class="age-warn">⚠ ${p.age}岁，注意老化</div>`:'';
-      const traitBadges=(p.traits||[]).map(t=>{const T=TRAITS[t]||LEGEND_TRAITS[t];return T?`<span style="background:${T.color};font-size:9px;padding:2px 4px;border-radius:3px;margin-right:2px;color:#fff" title="${T.desc}">${T.name}</span>`:''}).join('');
+      const traitBadges=(p.traits||[]).map(t=>renderTraitBadge(t)).join('');
       const rar=RARITY[p.rarity||'common'];
-      return`<div class="card" onclick="UI.showPlayer('${p.id}')" style="cursor:pointer;border:${rar.border};${rar.shadow?`box-shadow:${rar.shadow}`:''}">
+      const legendClass=p.isRegenLegend?'regen-legend':'';
+      const nameStyle=p.rarity==='legend'||p.isRegenLegend?'color:#ffd700;font-weight:700':'';
+      return`<div class="card ${legendClass}" onclick="UI.showPlayer('${p.id}')" style="cursor:pointer;border:${rar.border};${rar.shadow?`box-shadow:${rar.shadow}`:''}">
         <span class="rbadge" style="background:${ROLES[p.role].color}">${ROLES[p.role].zh}</span>
-        <div class="cname" style="${rar.name==='传奇'?'color:#ffd700;font-weight:700':''}">${p.name} <span style="font-size:10px;color:var(--dim)">(${p.age}岁)</span></div>
-        <div style="margin:2px 0">${traitBadges}</div>
+        <div class="cname" style="${nameStyle}">${p.name} <span style="font-size:10px;color:var(--dim)">(${p.age}岁)</span></div>
+        <div style="margin:4px 0 6px;min-height:18px">${traitBadges}</div>
         <div class="cstat"><span>能力</span><b>${p.rating}</b></div>
         <div class="cstat"><span>潜力</span><b style="color:${p.potential>=85?'var(--gold)':p.potential>=75?'var(--win)':'var(--dim)'}">${p.potential}</b></div>
         <div class="cstat"><span>状态</span><b>${((p.form||1)*100).toFixed(0)}%</b></div>
