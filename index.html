@@ -1095,11 +1095,15 @@ const World={
               Game.points = 3200 + Math.floor(excess * 0.75);
           }
       } else {
-          team.points = (team.points || 0) + points;
-          // Soft Yearly Cap for AI
-          if(team.points > 3200) {
-              const excess = team.points - 3200;
-              team.points = 3200 + Math.floor(excess * 0.75);
+          // 修复：必须找到 World.teams 中的原始对象进行更新，而不是更新副本
+          const realTeam = this.teams.find(t => t.id === team.id);
+          if (realTeam) {
+              realTeam.points = (realTeam.points || 0) + points;
+              // Soft Yearly Cap for AI
+              if(realTeam.points > 3200) {
+                  const excess = realTeam.points - 3200;
+                  realTeam.points = 3200 + Math.floor(excess * 0.75);
+              }
           }
       }
   },
@@ -1659,12 +1663,17 @@ const Cal={
     if(tier === 'major') minRank = teams + 8; // Major前N名+替补
     else if(tier === 'a-tier') minRank = 40;
     
+    // 赛事积分总池 (Base Points)
+    // S-Tier: 1000, A-Tier: 500, C-Tier: 100
+    const basePoints = tier === 'major' ? 1000 : 
+                       tier === 'a-tier' ? 500 : 100;
+
     this.evs.push({
         id:'t'+rnd(1000,9999),
         date:new Date(y,mo,d),
         name,tier,
         bracket, // SE, DE, GSE
-        teams,prize,minFans,minRank,
+        teams,prize,minFans,minRank,basePoints,
         isReg:false,fmt:tf
     });
   },
@@ -2352,47 +2361,9 @@ const Tour={
     // 2nd: loser of final
     // 3-4, 5-8 etc.
     
-    // Simplification: Assign points based on final standing in strategy
-    // Since we don't have a full standings object, we approximate based on 'eliminated' round or simple logic
+    const basePoints = this.ev.basePoints || (this.ev.tier === 'major' ? 1000 : 500);
     
-    const basePoints = this.ev.tier === 'major' ? 1000 : 
-                       this.ev.tier === 'a-tier' ? 500 : 100;
-    
-    // Distribute points to all participants
-    this.strategy.teams.forEach(t => {
-        let placement = 16; // default
-        let points = 0;
-        
-        if (t === champ) {
-            placement = 1;
-            points = Math.floor(basePoints * 0.35); // 1st: 35%
-        } else if (t.eliminated) {
-            // Estimate placement based on loss round or similar
-            // For now, we use a simple heuristic if we can't track exact placement
-            // If tracking exact placement is hard without strategy support, we use:
-            // 2nd place is the one who lost in Final
-            // 3-4 lost in Semis, etc.
-            // This requires looking at the bracket history.
-            
-            // Hacky approximation:
-            // 2nd place: played max rounds but lost final
-            // ...
-            
-            // Better: use strategy.teams state? 
-            // DoubleEliminationStrategy doesn't store "place".
-            
-            // Let's use a simplified tier distribution for non-champs for now, 
-            // or just award points to the champ and runner-up correctly, and generic for others?
-            // The prompt asks for aggressive curve: 1st 35%, 2nd 22%, 3-4 13%, 5-8 7%, 9-16 3%
-            
-            // We need to identify the runner-up.
-            // Runner-up is the loser of the last match in the bracket history?
-            // Yes, strategy.matches[last] has a loser.
-        }
-    });
-
-    // Since identifying exact placement for 3-16 is complex without a standings manager,
-    // we will implement a helper to extract standings from the strategy match history.
+    // Distribute points to all participants based on standings
     const standings = this._calculateStandings(champ);
     
     standings.forEach((t, index) => {
@@ -2403,13 +2374,22 @@ const Tour={
         else if (index < 8) pct = 0.07;    // 5-8
         else pct = 0.03;                   // 9-16
         
-        // C-Tier adjustment (flatter?) or keep same ratio?
-        // Prompt says "Example S-tier base 1000". We apply same ratio.
-        
         const pts = Math.floor(basePoints * pct);
-        if(pts > 0) World.addTournamentPoints(t, pts);
+        if(pts > 0) {
+            // Note: 't' here is a strategy copy object.
+            // World.addTournamentPoints handles looking up the real object by ID.
+            World.addTournamentPoints(t, pts);
+        }
     });
 
+    // MVP Logic ...
+    // Note: We need to find the real champ object in World.teams if we want to update its history
+    // But 'champ' is passed from strategy logic (it's a copy).
+    // However, World.addTournamentPoints handles the points.
+    // For stats (p.ys.wins), we are iterating champ.roster.
+    // The roster array in the copy still references the REAL player objects (as strategy map is shallow copy of team object).
+    // So modifying p.ys.wins works fine.
+    
     let cands=[...this.pStats.values()].filter(t=>t.played>0).map(t=>({
       ...t,avgScore:t.score/t.played,
       mvpElig:t.topRating>=1.15&&(t.finalRating===null||t.finalRating>=1.0)&&(t.team.id===champ.id||Math.random()<.05)
@@ -2711,12 +2691,12 @@ const Match={
       s.monB=Math.min(16000,s.monB+1400+s.lsB*500+bonB);
       s.lsB=Math.min(4,s.lsB+1);s.lsA=era.lossReset?0:Math.max(0,s.lsA-1);
       
-      // 玩家获胜积分奖励
-      let winPoints = 0;
-      if(Tour.ev.tier === 'major') winPoints = 50;
-      else if(Tour.ev.tier === 'a-tier') winPoints = 20;
-      else winPoints = 5;
-      Game.points += winPoints;
+      // 玩家获胜积分奖励 - 已移除，改为按排名分配
+      // let winPoints = 0;
+      // if(Tour.ev.tier === 'major') winPoints = 50;
+      // else if(Tour.ev.tier === 'a-tier') winPoints = 20;
+      // else winPoints = 5;
+      // Game.points += winPoints;
 
       if(upA)UI.log(`${lbl} 🔥 ECO翻盘！`,'eco');else UI.log(`${lbl} 赢下回合。`,'win');
     }else{
@@ -2724,12 +2704,12 @@ const Match={
       s.monA=Math.min(16000,s.monA+1400+s.lsA*500+bonA);
       s.lsA=Math.min(4,s.lsA+1);s.lsB=era.lossReset?0:Math.max(0,s.lsB-1);
       
-      // AI 获胜积分奖励
-      let winPoints = 0;
-      if(Tour.ev.tier === 'major') winPoints = 50;
-      else if(Tour.ev.tier === 'a-tier') winPoints = 20;
-      else winPoints = 5;
-      if(s.opp.points !== undefined) s.opp.points += winPoints;
+      // AI 获胜积分奖励 - 已移除，改为按排名分配
+      // let winPoints = 0;
+      // if(Tour.ev.tier === 'major') winPoints = 50;
+      // else if(Tour.ev.tier === 'a-tier') winPoints = 20;
+      // else winPoints = 5;
+      // if(s.opp.points !== undefined) s.opp.points += winPoints;
 
       if(upB)UI.log(`${lbl} 🔥 对手ECO翻盘！`,'eco');else UI.log(`${lbl} 回合失利。`,'loss');
     }
