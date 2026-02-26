@@ -1,0 +1,2049 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CS LEGENDS v5.0</title>
+<!--
+═══════════════════════════════════════════════════════════════════
+  CS LEGENDS v5.0 — 全面修复版
+  基于 v4.0 重构，主要修复与优化：
+
+  【严重Bug修复】
+  1. BP.start() 存在双重定义，第二个 start() 的旧变量名 (this.opp/pMapStr/oMapStr)
+     与第一个不兼容，导致整个BP流程崩溃 → 合并为唯一正确的 start()
+  2. Tour._advLoss(aiTeam, aiTeam) 传了两个参数但函数只接收一个 → 修复参数
+  3. Tour.seriesMaps / seriesMapIdx / _mapResults 在每场系列赛前未重置 → 在 BP._finish() 中统一重置
+  4. Match.exit() 进入下一张图时未清除 matchlog → 修复
+  5. BP._availMaps() 用 Set 追踪已用图，但 decider 存的是对象而非字符串 → 修复为统一用字符串
+  6. World.init() 调用时 Game.date 尚未设置导致时代判断错误 → 先设 date 再 init
+  7. Market.refresh() 在初始化时扣钱 → 改为 _silentRefresh() 不扣费
+  8. UI.refresh() 读取 synCache 前未调用 synergy() → 在 refresh 中先调用
+
+  【逻辑修复】
+  9. BO1/BO3/BO5 的 BP 步骤数量与 pick 槽位显示对齐修复
+  10. 系列赛胜负判断：Math.ceil(bo/2) BO1→1, BO3→2, BO5→3 全部验证正确
+  11. 老将下滑：age++ 在 forEach 中对同一玩家可能被计算两次（roster与World.players重叠）→ 用 Set 去重
+  12. AI转会：弱队 roster 为空时崩溃 → 添加防护
+  13. skipToEvent 逻辑：避免无限循环，加上最大迭代保护
+
+  【架构优化】
+  14. 统一 TournamentState 管理系列赛状态（seriesMaps/seriesMapIdx/seriesWinsP/seriesWinsAI）
+  15. BP 状态在每次 start() 时完整重置，杜绝上一场状态污染
+  16. 所有 DOM 操作加 null 检查
+  17. 使用防御性代码包裹所有关键流程节点
+═══════════════════════════════════════════════════════════════════
+-->
+<style>
+:root{
+  --bg:#09090b;--panel:#111114;--panel2:#18181c;--border:#2a2a30;--hover:#222228;
+  --gold:#e8a838;--gold2:#ffc15e;--gold-dim:#6b4a12;
+  --fg:#dddde0;--dim:#666672;--dim2:#444450;
+  --win:#4caf50;--loss:#ef4444;--blue:#3b82f6;--purple:#a855f7;
+  --ct:#6272ea;--t:#f59e0b;
+  --mvp:#ffd700;--evp:#b0b0c0;
+  --map-str:#22c55e;--map-weak:#ef4444;--map-mid:#f59e0b;
+}
+*{box-sizing:border-box;margin:0;padding:0;user-select:none}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--fg);height:100vh;display:flex;overflow:hidden;font-size:14px}
+.sb{width:232px;background:#0d0d10;border-right:1px solid var(--border);display:flex;flex-direction:column;padding:20px 16px;z-index:100;flex-shrink:0}
+.logo{font-size:17px;font-weight:800;color:var(--gold);margin-bottom:20px;letter-spacing:.5px;display:flex;align-items:center;gap:8px}
+.logo span{font-size:10px;color:var(--dim);font-weight:400;letter-spacing:1px;background:var(--panel2);padding:2px 6px;border-radius:3px;border:1px solid var(--border)}
+.timebox{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:16px;text-align:center}
+.timedate{font-size:17px;font-weight:700;color:#fff;font-family:Consolas,monospace;letter-spacing:1px}
+.era-tag{font-size:11px;color:var(--dim);margin:4px 0 10px;letter-spacing:.5px}
+.tbtn{display:block;width:100%;background:var(--gold);color:#000;border:none;padding:7px;font-weight:700;border-radius:5px;cursor:pointer;margin-bottom:5px;font-size:12px;transition:.15s;letter-spacing:.3px}
+.tbtn:hover{background:var(--gold2)}
+.tbtn.dim{background:var(--panel2);color:var(--dim);border:1px solid var(--border)}
+.tbtn.dim:hover{background:var(--hover);color:var(--fg)}
+.nav{display:flex;align-items:center;gap:10px;background:transparent;border:none;color:var(--dim);text-align:left;padding:9px 12px;cursor:pointer;border-radius:6px;font-size:13px;font-weight:600;margin-bottom:3px;transition:.15s;width:100%}
+.nav:hover,.nav.on{background:var(--hover);color:var(--fg);border-left:3px solid var(--gold);padding-left:9px}
+.statbar{margin-top:auto;border-top:1px solid var(--border);padding-top:14px;font-size:12px;color:var(--dim)}
+.srow{display:flex;justify-content:space-between;margin-bottom:7px;align-items:center}
+.sval{color:var(--fg);font-weight:600;font-family:Consolas,monospace}
+.main{flex:1;padding:28px 36px;overflow-y:auto;overflow-x:hidden}
+.hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:22px}
+.hdr h1{font-size:22px;font-weight:700;margin-bottom:4px}
+.hdr p{color:var(--dim);font-size:12px}
+.panel{background:var(--panel);border-radius:10px;padding:22px;margin-bottom:20px;border:1px solid var(--border)}
+.panel-title{font-size:14px;font-weight:700;color:#fff;border-bottom:1px solid var(--border);padding-bottom:10px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;letter-spacing:.3px}
+.g2{display:grid;grid-template-columns:1.8fr 1fr;gap:18px}
+.gcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:12px}
+.card{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:14px;transition:.2s;position:relative;cursor:default}
+.card:hover{border-color:var(--gold-dim);background:#1c1c22}
+.card.coach-card{border-color:#1e2a40;background:#111620}
+.card.coach-card:hover{border-color:#2a4a7a}
+.rbadge{font-size:9px;font-weight:700;padding:2px 6px;border-radius:3px;color:#fff;position:absolute;top:10px;right:10px;letter-spacing:.5px}
+.cname{font-size:14px;font-weight:700;color:#fff;margin:4px 0 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:60px}
+.cstat{font-size:11px;color:var(--dim);display:flex;justify-content:space-between;margin-bottom:5px;align-items:center}
+.cstat b{color:var(--fg);font-family:Consolas,monospace}
+.mapbars{margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
+.mapbar-row{display:flex;align-items:center;gap:6px;margin-bottom:4px;font-size:10px}
+.mapbar-name{width:52px;color:var(--dim);flex-shrink:0}
+.mapbar-bg{flex:1;height:4px;background:var(--border);border-radius:2px;overflow:hidden}
+.mapbar-fill{height:100%;border-radius:2px;transition:.3s}
+.potbox{background:#111;border-radius:4px;padding:5px;margin-top:8px;text-align:center;border:1px solid var(--border)}
+.potval{font-size:17px;font-weight:900;font-family:Consolas,monospace}
+.age-warn{font-size:10px;color:var(--loss);margin-top:4px}
+.btn{background:var(--gold);color:#000;border:none;border-radius:5px;padding:6px 14px;font-weight:700;cursor:pointer;font-size:12px;transition:.15s;letter-spacing:.3px}
+.btn:hover{background:var(--gold2)}
+.btn.danger{background:#3a1212;color:var(--loss);border:1px solid #5a1c1c}
+.btn.danger:hover{background:#4a1818}
+.btn.dark{background:var(--panel2);color:var(--dim);border:1px solid var(--border)}
+.btn.dark:hover{background:var(--hover);color:var(--fg)}
+.btn.full{width:100%;margin-top:8px;padding:7px}
+.cev{display:flex;align-items:center;gap:14px;padding:11px 14px;background:var(--panel2);border-left:3px solid var(--border);margin-bottom:8px;border-radius:5px;transition:.15s}
+.cev.major{border-left-color:var(--mvp);background:rgba(255,215,0,.04)}
+.cev.atier{border-left-color:var(--blue)}
+.cev.ctier{border-left-color:var(--dim2)}
+.cev-date{font-family:Consolas,monospace;color:var(--dim);font-size:12px;width:55px;flex-shrink:0}
+.cev-body{flex:1}
+.cev-name{font-weight:700;font-size:14px}
+.cev-sub{font-size:11px;color:var(--dim);margin-top:2px}
+.bo-tag{font-size:10px;padding:2px 7px;border-radius:3px;font-weight:700;margin-left:8px}
+.bo-bo1{background:#1a2a1a;color:#4caf50}
+.bo-bo3{background:#1a1a2a;color:#3b82f6}
+.bo-bo5{background:#2a1a2a;color:#a855f7}
+.trbtns{display:flex;gap:8px;margin-bottom:10px}
+.trbtn{flex:1;padding:9px 6px;background:var(--panel2);border:1px solid var(--border);color:var(--dim);cursor:pointer;border-radius:5px;font-size:12px;font-weight:700;transition:.15s;text-align:center}
+.trbtn.on{background:var(--gold);color:#000;border-color:var(--gold)}
+.scoreboard{font-size:52px;font-weight:900;margin:14px 0;display:flex;justify-content:center;align-items:center;gap:36px}
+.mlog{height:240px;overflow-y:auto;background:#060608;border:1px solid var(--border);padding:12px;font-family:Consolas,monospace;font-size:12px;margin-bottom:16px;border-radius:6px;text-align:left}
+.mlog-e{margin-bottom:5px;padding-left:10px;border-left:2px solid var(--border)}
+.mlog-e.win{border-left-color:var(--win);color:#86efac}
+.mlog-e.loss{border-left-color:var(--loss);color:#fca5a5}
+.mlog-e.spec{border-left-color:var(--gold);color:var(--gold);font-weight:700}
+.mlog-e.eco{border-left-color:var(--blue);color:#93c5fd;font-style:italic}
+.mlog-e.event{border-left-color:var(--purple);color:#d8b4fe;font-size:11px}
+.bct{background:var(--ct);color:#fff;padding:2px 7px;border-radius:3px;font-size:11px;font-weight:700}
+.bt{background:var(--t);color:#000;padding:2px 7px;border-radius:3px;font-size:11px;font-weight:700}
+.ot-badge{background:linear-gradient(90deg,#f59e0b,#e8a838);color:#000;font-size:10px;font-weight:900;padding:2px 8px;border-radius:3px;animation:pulse 1s ease-in-out infinite alternate}
+@keyframes pulse{from{opacity:.6}to{opacity:1}}
+.stbl{width:100%;border-collapse:collapse;font-size:12px;text-align:center}
+.stbl th{background:#1a1a1e;color:var(--dim);padding:8px 5px;font-weight:700;border-bottom:1px solid var(--border);text-transform:uppercase;font-size:10px;letter-spacing:.5px}
+.stbl td{padding:8px 5px;border-bottom:1px solid #1a1a1e}
+.stbl tr:hover td{background:#1c1c22}
+.stbl td:first-child{text-align:left;font-weight:700;color:#eee}
+.g{color:var(--win);font-weight:700}
+.r{color:var(--loss);font-weight:700}
+.bmvp{background:rgba(255,215,0,.12);color:var(--mvp);border:1px solid rgba(255,215,0,.3);padding:1px 5px;border-radius:3px;font-size:9px;margin-left:4px}
+.bevp{background:rgba(192,192,192,.1);color:var(--evp);border:1px solid rgba(192,192,192,.2);padding:1px 5px;border-radius:3px;font-size:9px;margin-left:4px}
+.bcol{display:flex;flex-direction:column;justify-content:space-around;gap:14px;min-width:200px}
+.bnode{background:var(--panel2);padding:10px 13px;border:1px solid var(--border);border-radius:7px;font-size:12px}
+.bnode.pnode{border-color:var(--gold-dim);box-shadow:0 0 12px rgba(232,168,56,.15)}
+.bteam{padding:5px 0;font-weight:600;color:var(--dim);display:flex;justify-content:space-between}
+.bteam.won{color:#fff}
+.bteam.isp{color:var(--blue)}
+.bteam.isp.won{color:var(--win)}
+.bscore{font-family:Consolas,monospace;font-size:13px;font-weight:700}
+.mapgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;margin-top:10px}
+.mapchip{background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:12px;font-weight:600;position:relative;overflow:hidden}
+.mapchip .str-bar{position:absolute;bottom:0;left:0;height:3px;border-radius:0 0 0 6px}
+.mapchip.str-high{border-color:rgba(34,197,94,.3)}
+.mapchip.str-mid{border-color:rgba(245,158,11,.3)}
+.mapchip.str-low{border-color:rgba(239,68,68,.3)}
+.maptag{font-size:9px;margin-top:3px}
+#bp-overlay{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:500;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px}
+.bp-title{font-size:22px;font-weight:800;color:var(--gold);margin-bottom:6px;letter-spacing:.5px}
+.bp-sub{font-size:13px;color:var(--dim);margin-bottom:22px}
+.bp-phase{font-size:12px;font-weight:700;color:var(--fg);background:var(--panel2);border:1px solid var(--border);padding:5px 16px;border-radius:20px;margin-bottom:18px;letter-spacing:.5px}
+.bp-maps{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;max-width:820px;margin-bottom:20px}
+.bp-map{background:var(--panel2);border:2px solid var(--border);border-radius:8px;padding:12px 16px;cursor:pointer;transition:.18s;min-width:110px;text-align:center;position:relative}
+.bp-map:hover:not(.banned):not(.picked-p):not(.picked-ai):not(.decider):not(.disabled){border-color:var(--gold);background:#1e1e10;transform:translateY(-2px)}
+.bp-map.banned{opacity:.3;cursor:not-allowed;text-decoration:line-through}
+.bp-map.picked-p{border-color:var(--win);background:rgba(34,197,94,.08)}
+.bp-map.picked-ai{border-color:var(--loss);background:rgba(239,68,68,.08)}
+.bp-map.decider{border-color:var(--purple);background:rgba(168,85,247,.08)}
+.bp-map.disabled{cursor:not-allowed}
+.bp-map-name{font-size:14px;font-weight:700;margin-bottom:5px}
+.bp-map-bars{display:flex;gap:4px;justify-content:center;margin-top:6px}
+.bp-bar{height:5px;width:40px;border-radius:2px}
+.bp-legend{display:flex;gap:18px;font-size:11px;color:var(--dim);margin-bottom:16px}
+.bp-legend span{display:flex;align-items:center;gap:5px}
+.bp-legend .dot{width:8px;height:8px;border-radius:50%}
+.bp-status{display:flex;gap:30px;margin-bottom:16px}
+.bp-team{text-align:center;min-width:180px}
+.bp-team-name{font-size:13px;font-weight:700;margin-bottom:6px}
+.bp-picks-row{display:flex;gap:6px;justify-content:center;flex-wrap:wrap}
+.bp-pick-slot{width:90px;height:28px;border:1px dashed var(--border);border-radius:4px;font-size:11px;display:flex;align-items:center;justify-content:center;color:var(--dim)}
+.bp-pick-slot.filled-win{border-color:var(--win);background:rgba(34,197,94,.1);color:var(--win);font-weight:700}
+.bp-pick-slot.filled-loss{border-color:var(--loss);background:rgba(239,68,68,.1);color:var(--loss);font-weight:700}
+.bp-pick-slot.filled-decider{border-color:var(--purple);background:rgba(168,85,247,.1);color:var(--purple);font-weight:700}
+.series-bar{display:flex;gap:10px;justify-content:center;margin-bottom:16px;align-items:center;flex-wrap:wrap}
+.series-map-btn{padding:6px 14px;border-radius:5px;font-size:12px;font-weight:700;border:1px solid var(--border);background:var(--panel2);color:var(--dim)}
+.series-map-btn.active{border-color:var(--gold);color:var(--gold);background:rgba(232,168,56,.08)}
+.series-map-btn.won-p{border-color:var(--win);color:var(--win);background:rgba(34,197,94,.08)}
+.series-map-btn.won-ai{border-color:var(--loss);color:var(--loss);background:rgba(239,68,68,.08)}
+.arow{display:flex;justify-content:space-between;align-items:center;padding:11px 14px;background:var(--panel2);border-radius:6px;margin-bottom:8px;border-left:3px solid var(--border)}
+.arow.mvp-row{background:linear-gradient(90deg,rgba(232,168,56,.12),transparent);border-left-color:var(--mvp)}
+.arow.evp-row{border-left-color:var(--evp)}
+.tab-row{display:flex;gap:0;margin-bottom:16px;border-bottom:1px solid var(--border)}
+.tab{padding:8px 20px;cursor:pointer;font-size:13px;font-weight:600;color:var(--dim);border-bottom:2px solid transparent;transition:.15s;margin-bottom:-1px}
+.tab.on{color:var(--gold);border-bottom-color:var(--gold)}
+#hltv-modal{position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:1000;display:flex;flex-direction:column;align-items:center;padding:40px;overflow-y:auto}
+.hrow{display:flex;align-items:center;background:#111;border:1px solid var(--border);margin-bottom:7px;padding:13px;border-radius:6px}
+.hrank{font-size:22px;font-weight:900;color:#333;width:46px;text-align:center;font-style:italic;font-family:Consolas,monospace}
+.hrow.top3 .hrank{color:var(--mvp)}
+.hidden{display:none!important}
+.toast{position:fixed;bottom:22px;right:22px;background:#18181e;color:#fff;padding:12px 22px;border-radius:7px;border-left:4px solid var(--gold);z-index:2000;box-shadow:0 8px 24px rgba(0,0,0,.6);font-weight:600;font-size:13px;pointer-events:none}
+.event-ticker{position:fixed;bottom:22px;left:250px;right:280px;background:rgba(168,85,247,.12);border:1px solid rgba(168,85,247,.3);color:#d8b4fe;padding:8px 16px;border-radius:6px;font-size:12px;z-index:1999;text-align:center;pointer-events:none}
+.syn{margin-bottom:7px;padding-left:9px;border-left:2px solid var(--border);font-size:12px}
+.intel-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);font-size:12px}
+.intel-row:last-child{border-bottom:none}
+</style>
+</head>
+<body>
+
+<div class="sb">
+  <div class="logo">CS LEGENDS <span>v5.0</span></div>
+  <div class="timebox">
+    <div class="timedate" id="ui-date">2000-01-01</div>
+    <div class="era-tag" id="ui-era">CS 1.6 Era</div>
+    <button class="tbtn" onclick="Game.advanceDay()">推进 1 天 ➔</button>
+    <button class="tbtn dim" onclick="Game.skipToEvent()">⏭ 跳至下个赛事</button>
+  </div>
+  <button class="nav on" onclick="UI.page('home')">🏢 俱乐部总部</button>
+  <button class="nav" onclick="UI.page('schedule')">📅 赛事日历</button>
+  <button class="nav" onclick="UI.page('market')">🛒 转会市场</button>
+  <button class="nav" onclick="UI.page('match')">🔫 赛事中心</button>
+  <button class="nav" onclick="UI.page('hall')">🏆 荣誉室</button>
+  <div style="flex:1"></div>
+  <button class="nav" style="color:var(--gold)" onclick="SaveManager.save()">💾 保存游戏</button>
+  <button class="nav" style="color:var(--loss)" onclick="if(confirm('确定删档重置？')){localStorage.removeItem(SaveManager.key);location.reload();}">⚠ 删档重置</button>
+  <div class="statbar">
+    <div style="font-size:11px;font-weight:700;color:var(--dim);margin-bottom:6px;letter-spacing:.5px">NEWS TICKER</div>
+    <div id="news-ticker" style="height:80px;overflow-y:auto;font-size:10px;color:var(--dim2);margin-bottom:10px;line-height:1.4"></div>
+    <div class="srow"><span>资金</span><span class="sval" id="ui-money">$5,000</span></div>
+    <div class="srow"><span>周薪</span><span class="sval" id="ui-salary" style="color:var(--loss)">$0</span></div>
+    <div class="srow"><span>粉丝</span><span class="sval" id="ui-fans">100</span></div>
+    <div class="srow"><span>赛季</span><span class="sval" id="ui-season">2000</span></div>
+  </div>
+</div>
+
+<div class="main">
+
+<div id="page-home">
+  <div class="hdr">
+    <div><h1>俱乐部总部</h1><p>管理阵容、教练与日常训练</p></div>
+  </div>
+  <div class="g2">
+    <div>
+      <div class="panel">
+        <div class="panel-title">首发阵容（5人）<span style="font-size:11px;color:var(--dim);font-weight:400">训练可向潜力上限靠拢</span></div>
+        <div id="roster-container" class="gcards"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">教练席<span style="font-size:11px;color:var(--blue);font-weight:400">影响BP精准度与磨合上限</span></div>
+        <div id="coach-container"></div>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:16px">
+      <div class="panel" style="margin-bottom:0">
+        <div class="panel-title">战队状态</div>
+        <div class="srow"><span style="color:var(--dim)">纸面战力</span><strong id="ui-raw" style="font-family:Consolas">—</strong></div>
+        <div class="srow" style="margin-bottom:10px"><span style="color:var(--dim)">实际战斗力</span><strong id="ui-eff" style="font-size:18px;color:var(--win);font-family:Consolas">—</strong></div>
+        <div class="srow"><span style="color:var(--dim)">磨合度</span><strong id="ui-chem" style="color:var(--blue);font-family:Consolas">—</strong></div>
+        <div class="srow"><span style="color:var(--dim)">磨合上限</span><strong id="ui-chem-max" style="color:var(--dim);font-family:Consolas">100</strong></div>
+        <div class="srow"><span style="color:var(--dim)">疲劳值</span><strong id="ui-fatigue" style="color:var(--loss);font-family:Consolas">—</strong></div>
+      </div>
+      <div class="panel" style="margin-bottom:0">
+        <div class="panel-title">Synergy 评估</div>
+        <div id="ui-syn" style="background:#0d0d10;padding:12px;border-radius:5px;border:1px solid var(--border)"></div>
+      </div>
+      <div class="panel" style="margin-bottom:0">
+        <div class="panel-title">队伍图池强度</div>
+        <div id="ui-mappool" class="mapgrid"></div>
+      </div>
+      <div class="panel" style="margin-bottom:0">
+        <div class="panel-title">日常训练</div>
+        <div class="trbtns">
+          <button class="trbtn on" id="tr-rest" onclick="Game.setTrain('rest')">🛌 休息</button>
+          <button class="trbtn" id="tr-aim" onclick="Game.setTrain('aim')">🎯 死斗</button>
+          <button class="trbtn" id="tr-tactics" onclick="Game.setTrain('tactics')">🗺 战术</button>
+        </div>
+        <div style="font-size:11px;color:var(--dim)" id="tr-desc">恢复体力与状态，降低疲劳。</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="page-schedule" class="hidden">
+  <div class="hdr"><div><h1>年度赛事日历</h1><p>报名参赛，赢取奖金与粉丝</p></div></div>
+  <div class="panel"><div id="cal-container"></div></div>
+</div>
+
+<div id="page-market" class="hidden">
+  <div class="hdr">
+    <div><h1>转会市场</h1><p>签约选手与教练，注意年龄与潜力</p></div>
+    <button class="btn" onclick="Market.refresh()">🔄 刷新名单（$500）</button>
+  </div>
+  <div class="panel">
+    <div class="tab-row">
+      <div class="tab on" id="tab-players" onclick="Market.showTab('players')">选手</div>
+      <div class="tab" id="tab-coaches" onclick="Market.showTab('coaches')">教练</div>
+    </div>
+    <div id="market-players" class="gcards" style="grid-template-columns:repeat(auto-fill,minmax(200px,1fr))"></div>
+    <div id="market-coaches" class="gcards hidden" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr))"></div>
+  </div>
+</div>
+
+<div id="page-hall" class="hidden">
+  <div class="hdr"><div><h1>荣誉室</h1><p>见证战队的辉煌时刻与传奇历程</p></div></div>
+  <div class="panel">
+    <div class="panel-title">冠军奖杯陈列</div>
+    <div id="trophy-case" class="gcards" style="grid-template-columns:repeat(auto-fill,minmax(200px,1fr))"></div>
+  </div>
+</div>
+
+<div id="page-match" class="hidden">
+  <div class="hdr"><h1>赛事中心</h1></div>
+  <div class="panel" id="pnl-empty">
+    <div style="text-align:center;padding:40px;color:var(--dim)">
+      <div style="font-size:36px;margin-bottom:12px">📅</div>
+      <h3 style="margin-bottom:8px">当前没有正在进行的比赛</h3>
+      <p style="font-size:12px">前往赛事日历报名，推进时间至比赛日</p>
+    </div>
+  </div>
+  <div id="pnl-hub" class="hidden">
+    <div class="panel" style="border-color:var(--gold-dim)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <div>
+          <div id="hub-name" style="font-size:20px;font-weight:800;color:var(--gold)"></div>
+          <div id="hub-desc" style="font-size:12px;color:var(--dim);margin-top:3px"></div>
+        </div>
+        <button class="btn dark" onclick="Tour.quit()">弃赛离场</button>
+      </div>
+      <div id="bracket" style="display:flex;gap:16px;overflow-x:auto;padding:10px 0"></div>
+    </div>
+    <div class="panel" id="pnl-next">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+        <div>
+          <div style="font-size:12px;color:var(--dim);margin-bottom:4px">下一场对手</div>
+          <div style="font-size:18px;font-weight:700" id="hub-opp">—</div>
+          <div style="font-size:11px;color:var(--dim);margin-top:3px" id="hub-format">BO1</div>
+        </div>
+        <div id="hub-intel" style="flex:1;max-width:360px;background:var(--panel2);border:1px solid var(--border);border-radius:7px;padding:12px">
+          <div style="font-size:11px;font-weight:700;color:var(--dim);margin-bottom:8px;letter-spacing:.5px">赛前情报</div>
+          <div id="intel-content"></div>
+        </div>
+        <button class="btn" style="padding:13px 30px;font-size:15px" onclick="BP.start()">进入图池BP ⚔</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="pnl-live" class="panel hidden">
+    <div style="text-align:center">
+      <div class="series-bar" id="series-bar"></div>
+      <h3 id="live-title" style="color:var(--gold);margin-bottom:8px;font-size:17px"></h3>
+      <div class="scoreboard">
+        <div style="text-align:right;flex:1">
+          <div style="font-size:13px;color:#fff;margin-bottom:6px"><span id="badge-a" class="bct">CT</span> 我的战队</div>
+          <span id="score-a" style="color:var(--win)">0</span>
+          <div id="eco-a" style="font-size:12px;margin-top:10px;color:var(--dim)"></div>
+        </div>
+        <div style="color:var(--border);font-size:36px;position:relative">
+          :
+          <div id="ot-ind" class="hidden" style="position:absolute;top:-20px;left:50%;transform:translateX(-50%)"><span class="ot-badge">OT</span></div>
+        </div>
+        <div style="text-align:left;flex:1">
+          <div style="font-size:13px;color:#fff;margin-bottom:6px"><span id="badge-b" class="bt">T</span> <span id="live-opp"></span></div>
+          <span id="score-b" style="color:var(--loss)">0</span>
+          <div id="eco-b" style="font-size:12px;margin-top:10px;color:var(--dim)"></div>
+        </div>
+      </div>
+      <div class="mlog" id="matchlog"></div>
+      <div id="live-ctrl">
+        <button class="btn" onclick="Match.round()">⚔ 下一回合</button>
+        <button class="btn dark" style="margin-left:12px" onclick="Match.auto()">⏭ 快速模拟</button>
+      </div>
+      <div id="post-stats" class="hidden" style="text-align:left;margin-top:18px;border-top:1px solid var(--border);padding-top:18px">
+        <h3 style="margin-bottom:12px;font-size:16px">📊 赛后数据（HLTV Rating 2.0）</h3>
+        <div id="match-awards" style="margin-bottom:16px;padding:13px;background:var(--panel2);border-radius:6px;border:1px solid var(--border)"></div>
+        <div style="display:flex;gap:16px;flex-wrap:wrap">
+          <div style="flex:1;min-width:320px;background:#0e0e12;border-radius:7px;overflow:hidden">
+            <div style="background:#1a2a1a;padding:7px 13px;font-weight:700;color:#86efac;font-size:12px">🛡 我的战队</div>
+            <table class="stbl" id="tbl-a"></table>
+          </div>
+          <div style="flex:1;min-width:320px;background:#0e0e12;border-radius:7px;overflow:hidden">
+            <div style="background:#2a1a1a;padding:7px 13px;font-weight:700;color:#fca5a5;font-size:12px" id="tbl-b-hdr">🔫 对手</div>
+            <table class="stbl" id="tbl-b"></table>
+          </div>
+        </div>
+        <div style="margin-top:16px;text-align:center">
+          <button class="btn" style="padding:10px 36px" id="next-map-btn" onclick="Match.exit()">继续 ➔</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="pnl-awards" class="panel hidden">
+    <div style="text-align:center;font-size:22px;font-weight:800;color:var(--gold);margin-bottom:6px">🏆 赛事落幕</div>
+    <div id="awards-sub" style="text-align:center;margin-bottom:24px;line-height:2"></div>
+    <div id="awards-mvp"></div>
+    <div style="font-size:13px;font-weight:700;color:var(--dim);margin:22px 0 12px;border-bottom:1px solid var(--border);padding-bottom:8px">🎖 EVP 最佳五人</div>
+    <div id="awards-evp"></div>
+    <div style="margin-top:32px;text-align:center">
+      <button class="btn" style="padding:11px 36px" onclick="Tour.closeAwards()">领取奖金并离开 ➔</button>
+    </div>
+  </div>
+</div>
+
+</div><!-- .main -->
+
+<div id="bp-overlay" class="hidden">
+  <div class="bp-title" id="bp-title">地图 Ban/Pick</div>
+  <div class="bp-sub" id="bp-sub"></div>
+  <div class="bp-phase" id="bp-phase">等待开始</div>
+  <div class="bp-legend">
+    <span><span class="dot" style="background:var(--win)"></span>我方强图</span>
+    <span><span class="dot" style="background:var(--loss)"></span>对方强图</span>
+    <span><span class="dot" style="background:var(--dim)"></span>中性图</span>
+  </div>
+  <div class="bp-status" id="bp-status"></div>
+  <div class="bp-maps" id="bp-maps"></div>
+</div>
+
+<div id="career-modal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:900;display:flex;justify-content:center;align-items:center;padding:40px">
+  <div class="panel" style="width:100%;max-width:600px;max-height:80vh;display:flex;flex-direction:column">
+    <div style="display:flex;justify-content:space-between;margin-bottom:20px">
+      <div id="career-name" style="font-size:20px;font-weight:700;color:var(--gold)"></div>
+      <button class="btn dark" onclick="document.getElementById('career-modal').classList.add('hidden')">✕ 关闭</button>
+    </div>
+    <div id="career-proto" class="hidden" style="margin-bottom:16px;padding:12px;background:rgba(255,215,0,0.08);border:1px solid rgba(255,215,0,0.3);border-radius:6px;font-size:12px;color:var(--dim2);line-height:1.5"></div>
+    <div style="overflow-y:auto;flex:1">
+      <table class="stbl">
+        <thead><tr><th>年份</th><th>战队</th><th>Rating</th><th>MVP次数</th></tr></thead>
+        <tbody id="career-table"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div id="hltv-modal" class="hidden">
+  <div style="color:var(--gold);font-size:36px;font-weight:900;margin-bottom:8px;letter-spacing:1px">HLTV TOP 20</div>
+  <div id="hltv-year" style="color:var(--dim);margin-bottom:24px;font-size:14px;font-style:italic"></div>
+  <div style="width:100%;max-width:760px" id="hltv-list"></div>
+  <button class="btn" style="margin-top:24px;padding:12px 40px;font-size:15px" onclick="document.getElementById('hltv-modal').classList.add('hidden')">关闭并开启新赛季</button>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════
+//  CS LEGENDS v5.0 — 核心逻辑
+// ══════════════════════════════════════════════════════
+
+// ─── 常量 ────────────────────────────────────────────
+const NAME_COUNTRIES=[
+  {code:'UA',country:'Ukraine',first:['Oleksandr','Denis','Ihor','Andrii'],last:['Kostyliev','Shevchenko','Bondarenko','Kravchenko']},
+  {code:'DK',country:'Denmark',first:['Nicolai','Peter','Lukas','Andreas'],last:['Jensen','Hansen','Nielsen','Christensen']},
+  {code:'SE',country:'Sweden',first:['Christopher','Patrik','Olof','Freddy'],last:['Lindberg','Alesund','Johansson','Larsson']},
+  {code:'NO',country:'Norway',first:['Ola','Jon','Lars','Kristian'],last:['Moum','Hansen','Nilsen','Larsen']},
+  {code:'FR',country:'France',first:['Kenny','Mathieu','Richard','Nathan'],last:['Schrub','Herbaut','Moreau','Dubois']},
+  {code:'PL',country:'Poland',first:['Jarosław','Michał','Paweł','Filip'],last:['Jarząbkowski','Nowak','Kowalski','Wiśniewski']},
+  {code:'RU',country:'Russia',first:['Denis','Sergey','Ivan','Alexey'],last:['Sharipov','Kovalev','Petrov','Volkov']},
+  {code:'US',country:'USA',first:['John','Jake','Ethan','Michael'],last:['Smith','Johnson','Brown','Davis']},
+  {code:'BR',country:'Brazil',first:['Gabriel','Marcelo','Lucas','Yuri'],last:['Toledo','Silva','Oliveira','Souza']},
+  {code:'FI',country:'Finland',first:['Aleksi','Jere','Jani','Sami'],last:['Virolainen','Laine','Virtanen','Korhonen']}
+];
+const HANDLE_CORES=['Sasha','ice','flame','shadow','storm','shift','nova','zero','flex','hunter','ghost','viper','aim','clutch'];
+const HANDLE_SUFFIXES=['','-ic','-god','-shifter','-flex','-zero'];
+const COACH_NAMES=["zonic","ave","kassad","threat","Aunkere","petr","lauNX","reatz","sdy","zehN","Robban","Snappi","MSL","stanislaw","adreN","lmbt","Xizt","SIXER","Trace","torben"];
+const AI_TEAMS=["NAVI","FaZe","Vitality","G2","Spirit","MOUZ","VP","Astralis","NIP","fnatic","Liquid","Complexity","Cloud9","Heroic","ENCE","FURIA"];
+const ROLES={
+  Sniper:{zh:'狙击手',color:'#ef4444'},
+  Entry: {zh:'突破手',color:'#f59e0b'},
+  Lurker:{zh:'自由人',color:'#8b5cf6'},
+  IGL:   {zh:'指挥',  color:'#06b6d4'},
+  Rifler:{zh:'步枪手',color:'#6b7280'}
+};
+const TRAITS={
+  headshot: {name:'爆头机器',type:'normal',desc:'步枪局输出+15%',color:'#ef4444'},
+  bigHeart: {name:'大心脏',  type:'normal',desc:'残局Clutch胜率提升',color:'#f97316'},
+  volatile:  {name:'神经刀',  type:'normal',desc:'发挥极不稳定，上限极高下限极低',color:'#a855f7'},
+  leader:    {name:'领袖',    type:'normal',desc:'担任指挥时全队磨合+20',color:'#eab308'},
+  cold:      {name:'冷酷',    type:'legacy',desc:'赛点局能力+10%',color:'#06b6d4'},
+  joker:     {name:'搞子',    type:'legacy',desc:'大优时概率送分',color:'#f97316',bad:true},
+  magician:  {name:'魔术师',  type:'legacy',desc:'手枪/ECO局战力+30%',color:'#a855f7'},
+  adaptive:  {name:'地图校准',type:'legacy',desc:'非擅长图无惩罚',color:'#3b82f6'},
+  evergreen: {name:'常青树',  type:'legacy',desc:'30岁后不下滑',color:'#22c55e'},
+  iron:      {name:'钢铁之躯',type:'legacy',desc:'训练不加疲劳',color:'#64748b'}
+};
+const LEGEND_TRAITS={
+  legend_core:   {name:'绝对核心',  desc:'队友全灭时全属性+20%',color:'#ffd700',tier:'generic'},
+  legend_winner: {name:'天生赢家',  desc:'半决赛/决赛Rating不低于1.10',color:'#ffd700',tier:'generic'},
+  sig_s1mple:    {name:'天外飞仙',  desc:'落后4分以上时接管比赛，多杀概率翻倍',color:'#ffd700',owner:'s1mple'},
+  sig_zywoo:     {name:'载物领域',  desc:'不吃负面士气影响，残局胜率大幅提升',color:'#ffd700',owner:'ZyWoO'},
+  sig_karrigan:  {name:'战术大脑',  desc:'上场时无视Synergy惩罚，全队战力×1.1',color:'#ffd700',owner:'karrigan'},
+  sig_gla1ve:    {name:'战术大脑',  desc:'上场时无视Synergy惩罚，全队战力×1.1',color:'#ffd700',owner:'gla1ve'},
+  sig_f0rest:    {name:'不老神话',  desc:'30岁后能力永久不下滑',color:'#ffd700',owner:'f0rest'}
+};
+const RARITY={
+  common:  {name:'普通',color:'#fff',   border:'1px solid var(--border)'},
+  uncommon:{name:'优秀',color:'#86efac',border:'1px solid #86efac'},
+  rare:    {name:'明星',color:'#a855f7',border:'1px solid #a855f7'},
+  legend:  {name:'传奇',color:'#ffd700',border:'2px solid #ffd700',shadow:'0 0 10px rgba(255,215,0,0.3)'}
+};
+const ERA_MAPS={
+  2000:['Dust2','Inferno','Nuke','Train','Tuscan','Mirage_16','Aztec'],
+  2012:['Dust2','Inferno','Nuke','Train','Mirage','Overpass','Cache'],
+  2017:['Dust2','Inferno','Nuke','Train','Mirage','Overpass','Cobblestone'],
+  2019:['Dust2','Inferno','Nuke','Train','Mirage','Overpass','Vertigo'],
+  2021:['Dust2','Inferno','Nuke','Ancient','Mirage','Overpass','Vertigo'],
+  2023:['Dust2','Inferno','Nuke','Ancient','Mirage','Anubis','Vertigo']
+};
+const MAP_DISPLAY={Mirage_16:'Mirage',Dust2:'Dust2',Inferno:'Inferno',Nuke:'Nuke',Train:'Train',Tuscan:'Tuscan',Aztec:'Aztec',Mirage:'Mirage',Overpass:'Overpass',Cache:'Cache',Cobblestone:'Cobble.',Vertigo:'Vertigo',Ancient:'Ancient',Anubis:'Anubis'};
+const HISTORICAL_DATA={
+  era2000:{
+    teams:[
+      {name:'NiP',      rating:90,players:['HeatoN','Potti']},
+      {name:'SK Gaming',rating:88,players:['SpawN']},
+      {name:'Team 3D',  rating:86,players:['Ksharp']},
+      {name:'mTw',      rating:85,players:['elemeNt']}
+    ],
+    players:{
+      HeatoN: {name:'HeatoN', role:'Entry', rating:92,age:20,country:'Sweden',countryCode:'SE',realName:'Emil Christensen'},
+      Potti:  {name:'Potti',  role:'Rifler',rating:90,age:21,country:'Sweden',countryCode:'SE',realName:'Tommy Ingemarsson'},
+      SpawN:  {name:'SpawN',  role:'Rifler',rating:89,age:19,country:'Sweden',countryCode:'SE',realName:'Abdisamad Mohamed'},
+      elemeNt:{name:'elemeNt',role:'IGL',   rating:88,age:20,country:'Norway',countryCode:'NO',realName:'Ola Moum'},
+      Ksharp: {name:'Ksharp', role:'Sniper',rating:87,age:22,country:'USA',   countryCode:'US',realName:'Kyle Miller'}
+    }
+  },
+  era2012:{
+    teams:[
+      {name:'Virtus.pro',rating:88,players:['pashaBiceps']},
+      {name:'Fnatic',    rating:90,players:['JW']},
+      {name:'Titan',     rating:89,players:['KennyS']},
+      {name:'LDLC',      rating:87,players:[]},
+      {name:'NiP',       rating:93,players:['GeT_RiGhT','f0rest']}
+    ],
+    players:{
+      GeT_RiGhT:  {name:'GeT_RiGhT',  role:'Lurker',rating:95,age:22,country:'Sweden',countryCode:'SE',realName:'Christopher Alesund'},
+      f0rest:     {name:'f0rest',      role:'Rifler',rating:93,age:24,country:'Sweden',countryCode:'SE',realName:'Patrik Lindberg',signatureTrait:'sig_f0rest'},
+      JW:         {name:'JW',          role:'Sniper',rating:90,age:20,country:'Sweden',countryCode:'SE',realName:'Jesper Wecksell'},
+      KennyS:     {name:'KennyS',      role:'Sniper',rating:94,age:18,country:'France',countryCode:'FR',realName:'Kenny Schrub'},
+      pashaBiceps:{name:'pashaBiceps', role:'Rifler',rating:90,age:24,country:'Poland',countryCode:'PL',realName:'Jarosław Jarząbkowski'}
+    }
+  },
+  era2020:{
+    teams:[
+      {name:'NAVI',    rating:95,players:['s1mple']},
+      {name:'Vitality',rating:94,players:['ZywOo']},
+      {name:'G2',      rating:92,players:['NiKo']},
+      {name:'Astralis',rating:90,players:['dev1ce']}
+    ],
+    players:{
+      s1mple:{name:'s1mple',role:'Sniper',rating:97,age:23,country:'Ukraine',countryCode:'UA',realName:'Oleksandr Kostyliev',debutYear:2014,debutAge:16,firstTeamId:'NAVI',signatureTrait:'sig_s1mple'},
+      ZywOo: {name:'ZyWoO', role:'Sniper',rating:96,age:20,country:'France', countryCode:'FR',realName:'Mathieu Herbaut',   debutYear:2018,debutAge:17,firstTeamId:'Vitality',signatureTrait:'sig_zywoo'},
+      NiKo:  {name:'NiKo',  role:'Rifler',rating:94,age:23,country:'Bosnia & Herzegovina',countryCode:'BA',realName:'Nikola Kovač',debutYear:2013,debutAge:16,firstTeamId:'G2'},
+      dev1ce:{name:'dev1ce',role:'Sniper',rating:93,age:24,country:'Denmark',countryCode:'DK',realName:'Nicolai Reedtz',   debutYear:2012,debutAge:17,firstTeamId:'Astralis'},
+      donk:  {name:'donk',  role:'Rifler',rating:95,age:19,country:'Russia', countryCode:'RU',realName:'Danil Kryshkovets',debutYear:2023,debutAge:16,firstTeamId:'Spirit'}
+    }
+  }
+};
+const REAL_TEAM_IDS=(()=>{
+  const s=new Set();
+  Object.values(HISTORICAL_DATA).forEach(e=>{if(e&&e.teams)e.teams.forEach(t=>s.add(t.name));});
+  ['NAVI','FaZe','Vitality','G2','NIP','fnatic','Astralis','Virtus.pro','Fnatic','Spirit'].forEach(n=>s.add(n));
+  return s;
+})();
+const isRealTeam=n=>n&&REAL_TEAM_IDS.has(n);
+const teamNameWithStar=n=>n?(isRealTeam(n)?n+' <span style="color:#ffd700" title="真实战队">⭐</span>':n):'';
+const RANDOM_EVENTS=[
+  {txt:'${p} 参加了网络直播，睡眠不足。',      effect:p=>{p.form=Math.max(.7,p.form-.06)},target:'player'},
+  {txt:'${p} 在个人直播中状态极佳，手感火热！', effect:p=>{p.form=Math.min(1.2,p.form+.06)},target:'player'},
+  {txt:'${p} 因轻伤休息了几天。',               effect:p=>{p.form=Math.max(.75,p.form-.05)},target:'player'},
+  {txt:'俱乐部收到赞助商鼓励，全队士气提振！',  effect:null,target:'team',teamEffect:r=>{r.forEach(p=>p.form=Math.min(1.15,p.form+.04))}},
+  {txt:'备战期间训练设施故障，影响本周训练。',  effect:null,target:'team',teamEffect:r=>{r.forEach(p=>p.form=Math.max(.8,p.form-.04))}},
+  {txt:'${p} 参加了慈善赛事，经验丰富心态稳定。',effect:p=>{p.form=Math.min(1.18,p.form+.04)},target:'player'},
+  {txt:'近期联队合作频繁，磨合度微升。',         effect:null,target:'chem',chemEffect:3},
+  {txt:'内部意见分歧，磨合度略有下降。',         effect:null,target:'chem',chemEffect:-4},
+  {txt:'${p} 手腕有些不适，状态受轻微影响。',   effect:p=>{p.form=Math.max(.78,p.form-.05)},target:'player'},
+  {txt:'${p} 最近私下苦练，状态悄悄上涨。',      effect:p=>{p.form=Math.min(1.2,p.form+.05)},target:'player'},
+];
+
+const rnd =(a,b)=>Math.floor(Math.random()*(b-a+1))+a;
+const pick=arr=>arr[Math.floor(Math.random()*arr.length)];
+const fmtD=d=>d.toISOString().split('T')[0];
+
+// ─── MapUtils ────────────────────────────────────────
+const MapUtils={
+  poolForYear(y){
+    const keys=Object.keys(ERA_MAPS).map(Number).sort((a,b)=>a-b);
+    let pool=ERA_MAPS[2000];
+    for(const k of keys){if(y>=k)pool=ERA_MAPS[k];}
+    return pool;
+  },
+  display(m){return MAP_DISPLAY[m]||m;},
+  genPlayerMaps(birthYear){
+    const pool=this.poolForYear(birthYear||2000);
+    const n=rnd(2,3);
+    return [...pool].sort(()=>Math.random()-.5).slice(0,n).map(m=>({map:m,str:rnd(65,95)}));
+  },
+  teamMapStr(roster,coach,map){
+    let score=50;
+    (roster||[]).forEach(p=>{const m=(p.maps||[]).find(x=>x.map===map);if(m)score+=m.str*.25;});
+    if(coach){const cm=(coach.maps||[]).find(x=>x.map===map);if(cm)score+=cm.str*.4;}
+    return Math.min(99,score);
+  },
+  teamPoolRatings(roster,coach,year){
+    return this.poolForYear(year).map(m=>({map:m,str:this.teamMapStr(roster,coach,m)}));
+  }
+};
+
+// ─── World ───────────────────────────────────────────
+const World={
+  players:[],teams:[],
+  genRandomIdentity(){
+    const cfg=pick(NAME_COUNTRIES);
+    const core=pick(HANDLE_CORES),suf=pick(HANDLE_SUFFIXES),handle=core+(suf||'');
+    return{first:pick(cfg.first),last:pick(cfg.last),handle,name:`${pick(cfg.first)} "${handle}" ${pick(cfg.last)}`,country:cfg.country,countryCode:cfg.code};
+  },
+  mkRealPlayer(cfg,teamName){
+    const rating=cfg.rating,age=cfg.age||20;
+    const pot=cfg.potential!=null?cfg.potential:Math.min(99,rating+5);
+    const rarity=cfg.rarity||(rating>=90?'legend':rating>=80?'rare':'uncommon');
+    const handle=cfg.handle||cfg.name;
+    const realName=cfg.realName||null;
+    const myTraits=[];
+    if(cfg.signatureTrait)myTraits.push(cfg.signatureTrait);
+    const normalKeys=['headshot','bigHeart','volatile','leader'];
+    if(cfg.role==='Sniper'||cfg.role==='Rifler')myTraits.includes('headshot')||myTraits.push('headshot');
+    if(cfg.role==='Lurker')myTraits.includes('bigHeart')||myTraits.push('bigHeart');
+    if(cfg.role==='IGL')myTraits.includes('leader')||myTraits.push('leader');
+    while([...myTraits].filter(t=>TRAITS[t]&&TRAITS[t].type==='normal').length<2)myTraits.push(pick(normalKeys));
+    return{
+      id:'real_'+cfg.name+'_'+rnd(1000,9999),
+      name:handle+(realName?` (${realName})`:''),
+      role:cfg.role,rating,potential:pot,age,form:1.0,
+      price:rating*40+(rating+(pot-rating))*20,
+      salary:Math.floor(rating*rating/10),
+      teamId:teamName||null,rarity,
+      traits:[...new Set(myTraits)],
+      maps:MapUtils.genPlayerMaps(2000-(age-17)),
+      ys:{matches:0,ratingSum:0,mvps:0,majorWins:0,wins:0},
+      history:[],_ageDecayYear:null,isReal:true,
+      country:cfg.country||'Unknown',countryCode:cfg.countryCode||null,
+      handle,realName
+    };
+  },
+  init(startYear){
+    this.players=[];this.teams=[];
+    const y=startYear||2000;
+    const eraKey=y>=2020?'era2020':(y>=2012?'era2012':'era2000');
+    const eraData=HISTORICAL_DATA[eraKey];
+    const usedTeams=new Set();
+    if(eraData){
+      eraData.teams.forEach(t=>{
+        const base=t.rating,roster=[];
+        (t.players||[]).forEach(pKey=>{
+          const cfg=eraData.players[pKey];if(!cfg)return;
+          const p=this.mkRealPlayer(cfg,t.name);
+          this.players.push(p);roster.push(p);
+        });
+        while(roster.length<5){const p=this.mkP(base-8,base+12,true,null,y);p.teamId=t.name;this.players.push(p);roster.push(p);}
+        const coach=this.mkCoach(true);
+        this.teams.push({id:t.name,name:t.name,rating:base,roster,coach,isPlayer:false});
+        usedTeams.add(t.name);
+      });
+    }
+    const aiPool=AI_TEAMS.filter(n=>!usedTeams.has(n));
+    let idx=0;
+    while(this.teams.length<16&&idx<aiPool.length){
+      const name=aiPool[idx++];
+      const base=65+rnd(0,25),roster=[];
+      ['IGL','Sniper','Entry','Lurker','Rifler'].forEach(role=>{
+        const p=this.mkP(base-8,base+12,true,role,y);p.teamId=name;this.players.push(p);roster.push(p);
+      });
+      const coach=this.mkCoach(true);
+      this.teams.push({id:name,name,rating:base,roster,coach,isPlayer:false});
+    }
+  },
+  mkP(min,max,ai=false,forceRole=null,birthYear=2000){
+    const isLegend=!ai&&Math.random()<0.005;
+    let rating,pot,age;
+    if(isLegend){rating=rnd(90,99);age=rnd(18,22);pot=99;}
+    else{rating=rnd(min,max);age=rnd(16,30);pot=Math.min(99,rating+(age<=20?rnd(10,25):age<=25?rnd(5,12):rnd(0,3)));}
+    let rarity='common';
+    if(isLegend)rarity='legend';
+    else if(rating>=85)rarity='rare';
+    else if(rating>=75)rarity='uncommon';
+    const myTraits=[];
+    const normalKeys=['headshot','bigHeart','volatile','leader'];
+    const legendGenericKeys=['legend_core','legend_winner'];
+    if(isLegend){myTraits.push(pick(legendGenericKeys));for(let i=0;i<2;i++)myTraits.push(pick(normalKeys));}
+    else if(Math.random()<.2){myTraits.push(pick(normalKeys));}
+    const ident=this.genRandomIdentity();
+    return{
+      id:(ai?'ai_':'p_')+rnd(10000,99999),
+      name:ident.name,role:forceRole||pick(Object.keys(ROLES)),
+      rating,potential:pot,age,form:1.0,
+      price:rating*40+(rating+(pot-rating))*20+rnd(0,500),
+      salary:Math.floor(rating*rating/10)*(isLegend?2:1),
+      teamId:null,rarity,traits:[...new Set(myTraits)],
+      maps:MapUtils.genPlayerMaps(birthYear),
+      ys:{matches:0,ratingSum:0,mvps:0,majorWins:0,wins:0},
+      history:[],_ageDecayYear:null,
+      country:ident.country,countryCode:ident.countryCode,handle:ident.handle
+    };
+  },
+  mkCoach(ai=false){
+    const tactics=rnd(ai?50:45,ai?85:80),yr=rnd(1995,2010);
+    return{
+      id:(ai?'ac_':'c_')+rnd(10000,99999),
+      name:pick(COACH_NAMES)+(ai?'':'-'+rnd(1,9)),
+      tactics,age:rnd(28,50),maps:MapUtils.genPlayerMaps(yr),
+      price:tactics*30+rnd(0,300),
+      salary:Math.floor(tactics*tactics/10),
+      teamId:null,isAI:ai
+    };
+  }
+};
+
+// ─── Market ──────────────────────────────────────────
+const Market={
+  pList:[],cList:[],currentTab:'players',
+  refresh(free=false){
+    if(!free&&Game.money<500)return UI.toast('资金不足！刷新需要 $500');
+    if(!free)Game.money-=500;
+    this.pList=[];this.cList=[];
+    const q=55+Math.floor(Math.min(Game.fans,5000)/100);
+    for(let i=0;i<6;i++){const p=World.mkP(q-5,q+15);World.players.push(p);this.pList.push(p);}
+    for(let i=0;i<3;i++){const c=World.mkCoach();this.cList.push(c);}
+    this.renderAll();if(!free)UI.refresh();
+  },
+  showTab(t){
+    this.currentTab=t;
+    document.getElementById('tab-players').classList.toggle('on',t==='players');
+    document.getElementById('tab-coaches').classList.toggle('on',t==='coaches');
+    document.getElementById('market-players').classList.toggle('hidden',t!=='players');
+    document.getElementById('market-coaches').classList.toggle('hidden',t!=='coaches');
+  },
+  renderAll(){this.renderPlayers();this.renderCoaches();},
+  renderPlayers(){
+    const yr=Game.date.getFullYear();
+    const el=document.getElementById('market-players');if(!el)return;
+    el.innerHTML=this.pList.map(p=>{
+      const pool=MapUtils.poolForYear(yr);
+      const myMaps=(p.maps||[]).filter(m=>pool.includes(m.map));
+      const traitBadges=(p.traits||[]).map(t=>{const T=TRAITS[t]||LEGEND_TRAITS[t];return T?`<span style="background:${T.color};font-size:9px;padding:2px 4px;border-radius:3px;margin-right:2px;color:#fff" title="${T.desc}">${T.name}</span>`:''}).join('');
+      const rar=RARITY[p.rarity||'common'];
+      return`<div class="card" onclick="UI.showPlayer('${p.id}')" style="cursor:pointer;border:${rar.border};${rar.shadow?`box-shadow:${rar.shadow}`:''}">
+        <span class="rbadge" style="background:${ROLES[p.role].color}">${ROLES[p.role].zh}</span>
+        <div class="cname" style="${rar.name==='传奇'?'color:#ffd700;font-weight:700':''}">${p.name} <span style="font-size:10px;color:var(--dim)">(${p.age}岁)</span></div>
+        <div style="margin:2px 0">${traitBadges}</div>
+        <div class="cstat"><span>能力值</span><b>${p.rating}</b></div>
+        <div class="cstat"><span>潜力</span><b style="color:${p.potential>=85?'var(--gold)':p.potential>=75?'var(--win)':'var(--dim)'}">${p.potential}</b></div>
+        <div class="cstat"><span>买断费</span><b style="color:#86efac">$${p.price.toLocaleString()}</b></div>
+        <div class="mapbars">${myMaps.slice(0,2).map(m=>`<div class="mapbar-row"><span class="mapbar-name">${MapUtils.display(m.map)}</span><div class="mapbar-bg"><div class="mapbar-fill" style="width:${m.str}%;background:var(--win)"></div></div><span style="font-size:10px;color:var(--dim)">${m.str}</span></div>`).join('')}</div>
+        <button class="btn full" onclick="event.stopPropagation();Game.buyP('${p.id}')">签约选手</button>
+      </div>`;
+    }).join('');
+  },
+  renderCoaches(){
+    const el=document.getElementById('market-coaches');if(!el)return;
+    el.innerHTML=this.cList.map(c=>`
+      <div class="card coach-card">
+        <span class="rbadge" style="background:var(--blue)">教练</span>
+        <div class="cname">${c.name} <span style="font-size:10px;color:var(--dim)">(${c.age}岁)</span></div>
+        <div class="cstat"><span>战术水平</span><b style="color:var(--blue)">${c.tactics}</b></div>
+        <div class="cstat"><span>BP精准度</span><b>${Math.round(40+c.tactics*.5)}%</b></div>
+        <div class="cstat"><span>签约费</span><b style="color:#86efac">$${c.price.toLocaleString()}</b></div>
+        <div class="mapbars">${(c.maps||[]).slice(0,2).map(m=>`<div class="mapbar-row"><span class="mapbar-name">${MapUtils.display(m.map)}</span><div class="mapbar-bg"><div class="mapbar-fill" style="width:${m.str}%;background:var(--blue)"></div></div><span style="font-size:10px;color:var(--dim)">${m.str}</span></div>`).join('')}</div>
+        <button class="btn full" onclick="Game.buyC('${c.id}')">签约教练</button>
+      </div>`).join('');
+  }
+};
+
+// ─── SaveManager ─────────────────────────────────────
+const SaveManager={
+  key:'cs_legends_save_v5',
+  save(){
+    try{
+      const data={date:Game.date.toISOString(),money:Game.money,fans:Game.fans,roster:Game.roster,coach:Game.coach,trophies:Game.trophies||[],news:Game.news||[],bankruptcyDays:Game.bankruptcyDays||0};
+      localStorage.setItem(this.key,JSON.stringify(data));
+      UI.toast('💾 游戏已保存');
+    }catch(e){console.error(e);UI.toast('❌ 保存失败');}
+  },
+  load(){
+    const json=localStorage.getItem(this.key);if(!json)return false;
+    try{
+      const data=JSON.parse(json);
+      Game.date=new Date(data.date);Game.money=data.money;Game.fans=data.fans;
+      Game.trophies=data.trophies||[];Game.news=data.news||[];
+      Game.bankruptcyDays=data.bankruptcyDays||0;
+      Game.roster=data.roster||[];
+      Game.roster.forEach(p=>{
+        if(!World.players.find(x=>x.id===p.id))World.players.push(p);
+        if(p.salary===undefined)p.salary=Math.floor(p.rating*p.rating/10);
+        if(!p.traits)p.traits=[];if(!p.maps)p.maps=[];if(!p.ys)p.ys={matches:0,ratingSum:0,mvps:0,majorWins:0,wins:0};
+      });
+      Game.coach=data.coach||null;
+      if(Game.coach&&Game.coach.salary===undefined)Game.coach.salary=Math.floor(Game.coach.tactics*Game.coach.tactics/10);
+      UI.toast('📂 存档已读取');return true;
+    }catch(e){console.error(e);UI.toast('❌ 存档损坏');return false;}
+  },
+  hasSave(){return!!localStorage.getItem(this.key);}
+};
+
+// ─── Game ────────────────────────────────────────────
+const Game={
+  date:new Date('2000-01-01'),money:5000,fans:100,
+  roster:[],coach:null,trophies:[],news:[],
+  chem:50,fatigue:0,training:'rest',
+  bankruptcyDays:0,synCache:{mult:1,msgs:[]},
+  eras:[
+    {name:'CS 1.6 Era', winR:16,halfR:15,lossReset:true},
+    {name:'CS:GO Era',  winR:16,halfR:15,lossReset:false},
+    {name:'CS2 Era',    winR:13,halfR:12,lossReset:false}
+  ],
+  get era(){const y=this.date.getFullYear();return y>=2023?2:y>=2012?1:0;},
+  get eraObj(){return this.eras[this.era];},
+  get weeklySalary(){
+    const rs=this.roster.reduce((a,b)=>a+(b.salary||Math.floor(b.rating*b.rating/10)),0);
+    const cs=this.coach?(this.coach.salary||Math.floor(this.coach.tactics*this.coach.tactics/10)):0;
+    return rs+cs;
+  },
+  pushNews(msg){
+    this.news.unshift({date:fmtD(this.date),msg});
+    if(this.news.length>20)this.news.pop();
+    const el=document.getElementById('news-ticker');
+    if(el)el.innerHTML=this.news.map(n=>`<div style="margin-bottom:4px;border-bottom:1px dashed var(--border);padding-bottom:2px"><span style="color:var(--dim)">${n.date}</span><br><span style="color:#eee">${n.msg}</span></div>`).join('');
+  },
+  init(){
+    // 先设置日期，再初始化世界（时代判断依赖日期）
+    this.date=new Date('2000-01-01');
+    World.init(2000);
+    if(SaveManager.hasSave()&&SaveManager.load()){
+      Cal.genYear(this.date.getFullYear());
+      if(this.news&&this.news.length){
+        const el=document.getElementById('news-ticker');
+        if(el)el.innerHTML=this.news.map(n=>`<div style="margin-bottom:4px;border-bottom:1px dashed var(--border);padding-bottom:2px"><span style="color:var(--dim)">${n.date}</span><br><span style="color:#eee">${n.msg}</span></div>`).join('');
+      }
+    }else{
+      ['IGL','Sniper','Entry','Rifler','Lurker'].forEach(role=>{
+        const p=World.mkP(55,65,false,role,2000);p.teamId='PLAYER';World.players.push(p);this.roster.push(p);
+      });
+      Cal.genYear(2000);this.money+=500;this.pushNews('俱乐部成立，开启征程！');
+    }
+    // 免费初始化市场（不扣钱）
+    Market.refresh(true);
+    UI.refresh();
+  },
+  advanceDay(){
+    this.date.setDate(this.date.getDate()+1);
+    const y=this.date.getFullYear(),mo=this.date.getMonth(),d=this.date.getDate();
+    // 历史天才少年登场
+    this._checkDebuts(y);
+    // 周薪
+    if(this.date.getDay()===1){
+      const ws=this.weeklySalary;this.money-=ws;
+      UI.toast(`💸 支付周薪 $${ws.toLocaleString()}`);
+      if(this.money<0){
+        this.bankruptcyDays+=7;
+        if(this.bankruptcyDays>=7){
+          const sorted=[...this.roster].sort((a,b)=>(b.salary||0)-(a.salary||0));
+          if(sorted.length>0){const target=sorted[0];this.fireP(target.id);this.pushNews(`💔 资金链断裂！战队被迫解约 ${target.name}`);}
+          this.bankruptcyDays=0;
+        }else{UI.toast('⚠ 资金不足！请在一周内扭亏为盈！');}
+      }else{this.bankruptcyDays=0;}
+    }
+    // 训练
+    if(this.training==='rest'){
+      this.fatigue=Math.max(0,this.fatigue-5);
+      this.roster.forEach(p=>p.form=Math.min(1.2,p.form+.02));
+    }else if(this.training==='aim'){
+      const coachBonus=this.coach?this.coach.tactics/500:0;
+      const hasIron=this.roster.some(p=>(p.traits||[]).includes('iron'));
+      if(!hasIron)this.fatigue+=2;
+      this.roster.forEach(p=>{if(p.rating<p.potential&&Math.random()<.15+coachBonus)p.rating++;});
+    }else{
+      const hasIron=this.roster.some(p=>(p.traits||[]).includes('iron'));
+      if(!hasIron)this.fatigue+=2;
+      const cap=this.chemCap(),mult=this.coach?1+this.coach.tactics/200:1;
+      this.chem=Math.min(cap,this.chem+mult);
+    }
+    if(this.fatigue>80)this.roster.forEach(p=>p.form=Math.max(.7,p.form-.05));
+    // 年末
+    if(mo===11&&d===31){this._yearEnd(y);return;}
+    // 随机事件
+    if(Math.random()<.01)this._randomEvent();
+    // 赛事
+    const ev=Cal.today(this.date);
+    if(ev){
+      if(ev.isReg){Tour.start(ev);return;}
+      else{
+        const w=pick(World.teams);
+        if(w&&w.roster){w.roster.forEach(p=>{p.ys.matches+=5;p.ys.ratingSum+=(1.05+Math.random()*.2)*5;p.ys.wins++;if(ev.tier==='major')p.ys.majorWins++;});if(w.roster[0])w.roster[0].ys.mvps++;}
+        UI.toast(`📰 ${w?w.name:'某队'} 夺得 ${ev.name} 冠军！`);
+      }
+    }
+    UI.refresh();
+  },
+  _checkDebuts(y){
+    Object.values(HISTORICAL_DATA).forEach(era=>{
+      if(!era||!era.players)return;
+      Object.values(era.players).forEach(cfg=>{
+        if(cfg.debutYear!==y)return;
+        const exists=World.players.some(p=>p.isReal&&(p.handle===cfg.name||p.realName===cfg.realName));
+        if(exists)return;
+        const baseCfg={...cfg};if(cfg.debutAge)baseCfg.age=cfg.debutAge;
+        const firstTeamId=cfg.firstTeamId||null;
+        const teamTarget=firstTeamId?World.teams.find(t=>t.id===firstTeamId||t.name===firstTeamId)||null:null;
+        const p=World.mkRealPlayer(baseCfg,teamTarget?teamTarget.id:null);
+        World.players.push(p);
+        if(teamTarget){p.teamId=teamTarget.id;teamTarget.roster.push(p);}
+        else{Market.pList.push(p);}
+        this.pushNews(`[未来之星] ${cfg.debutAge||16}岁天才 ${cfg.name} 已崭露头角！`);
+      });
+    });
+  },
+  _yearEnd(y){
+    // 老将下滑（去重处理，roster 与 World.players 有重叠）
+    const seen=new Set();
+    [...this.roster,...World.players].forEach(p=>{
+      if(seen.has(p.id))return;seen.add(p.id);
+      p.age++;
+      if(p.age>30){
+        if((p.traits||[]).includes('evergreen')||(p.traits||[]).includes('sig_f0rest'))return;
+        if(p.age<=34&&Math.random()<.15){
+          const drop=rnd(1,2);p.rating=Math.max(40,p.rating-drop);p.potential=Math.max(p.rating,p.potential-1);
+          if(p.teamId==='PLAYER')UI.toast(`⚠ ${p.name} 年龄增长，状态下滑（-${drop}）`);
+        }
+        if(p.age>=35&&p.teamId==='PLAYER'){
+          this.roster=this.roster.filter(x=>x.id!==p.id);p.teamId=null;
+          UI.toast(`📢 ${p.name} 已年满35岁宣布退役。`);
+        }
+      }
+    });
+    if(this.coach&&this.coach.age>=40&&Math.random()<.05){UI.toast(`📢 教练 ${this.coach.name} 选择离队。`);this.coach=null;}
+    if(this.coach)this.coach.age++;
+    this._aiTransfer(y);
+    HLTV.calc(y);
+    Cal.genYear(y+1);
+  },
+  _aiTransfer(y){
+    const weakTeams=World.teams.filter(t=>!t.isPlayer).sort((a,b)=>a.rating-b.rating).slice(0,4);
+    weakTeams.forEach(t=>{
+      if(!t.roster||t.roster.length===0)return;
+      const canKick=t.roster.filter(p=>!(p.isReal&&p.rarity==='legend'));
+      const worstP=(canKick.length>0?canKick:t.roster).reduce((a,b)=>a.rating<b.rating?a:b);
+      t.roster=t.roster.filter(p=>p.id!==worstP.id);worstP.teamId=null;
+      const bestFA=World.players.filter(p=>!p.teamId&&p.rating>worstP.rating+2).sort((a,b)=>b.rating-a.rating)[0];
+      if(bestFA){bestFA.teamId=t.id;t.roster.push(bestFA);this.pushNews(`⚡ ${t.name} 签下 ${bestFA.name}`);}
+      else{const newP=World.mkP(worstP.rating+2,worstP.rating+8,true,worstP.role,y);newP.teamId=t.id;World.players.push(newP);t.roster.push(newP);this.pushNews(`✨ ${t.name} 提拔青训 ${newP.name}`);}
+    });
+  },
+  _randomEvent(){
+    const ev=pick(RANDOM_EVENTS);
+    if(ev.target==='player'&&this.roster.length){
+      const p=pick(this.roster);const txt=ev.txt.replace('${p}',p.name);ev.effect(p);
+      UI.showEventTicker(txt);
+    }else if(ev.target==='team'&&ev.teamEffect){ev.teamEffect(this.roster);UI.showEventTicker(ev.txt);}
+    else if(ev.target==='chem'){this.chem=Math.max(0,Math.min(this.chemCap(),this.chem+ev.chemEffect));UI.showEventTicker(ev.txt);}
+  },
+  chemCap(){return this.coach?Math.min(110,100+Math.floor(this.coach.tactics/10)):100;},
+  setTrain(m){
+    this.training=m;
+    document.querySelectorAll('.trbtn').forEach(b=>b.classList.remove('on'));
+    const el=document.getElementById('tr-'+m);if(el)el.classList.add('on');
+    const d={rest:'🛌 恢复体力与状态，降低疲劳。',aim:'🎯 强化枪法，向潜力上限靠拢（教练加速）。',tactics:'🗺 提升磨合度，上限由教练战术水平决定。'};
+    const td=document.getElementById('tr-desc');if(td)td.innerText=d[m];
+  },
+  synergy(){
+    if(!this.roster.length)return{mult:1,msgs:['<div class="syn" style="border-left-color:var(--dim)">暂无选手</div>']};
+    const r=this.roster.map(p=>p.role);
+    const igls=r.filter(x=>x==='IGL').length,snipers=r.filter(x=>x==='Sniper').length,entries=r.filter(x=>x==='Entry').length;
+    let mult=1,msgs=[];
+    if(igls===1){mult+=.05;msgs.push('<div class="syn" style="border-left-color:var(--win);color:#86efac">✅ 明确指挥 (+5%)</div>');}
+    else if(!igls){mult-=.15;msgs.push('<div class="syn" style="border-left-color:var(--loss);color:#fca5a5">❌ 缺少指挥 (-15%)</div>');}
+    else{mult-=.10;msgs.push('<div class="syn" style="border-left-color:var(--gold);color:var(--gold)">⚠ 指挥权冲突 (-10%)</div>');}
+    if(snipers===1){mult+=.05;msgs.push('<div class="syn" style="border-left-color:var(--win);color:#86efac">✅ 专属狙击 (+5%)</div>');}
+    else if(!snipers){mult-=.10;msgs.push('<div class="syn" style="border-left-color:var(--loss);color:#fca5a5">❌ 缺少狙击 (-10%)</div>');}
+    else{mult-=.10;msgs.push('<div class="syn" style="border-left-color:var(--gold);color:var(--gold)">⚠ 狙击过多 (-10%)</div>');}
+    if(entries>=1){mult+=.02;msgs.push('<div class="syn" style="border-left-color:var(--win);color:#86efac">✅ 有突破手 (+2%)</div>');}
+    else{mult-=.05;msgs.push('<div class="syn" style="border-left-color:var(--loss);color:#fca5a5">❌ 缺少突破手 (-5%)</div>');}
+    if(this.coach){mult+=.03;msgs.push(`<div class="syn" style="border-left-color:var(--blue);color:#93c5fd">🧠 教练加持（战术${this.coach.tactics}）(+3%)</div>`);}
+    this.synCache={mult,msgs};return this.synCache;
+  },
+  power(){
+    let raw=this.roster.reduce((s,p)=>s+p.rating*p.form,0)/(this.roster.length||1);
+    if(this.fatigue>50)raw*=.9;
+    const syn=this.synergy();let synMult=syn.mult;
+    const hasTactBrain=this.roster.some(p=>(p.traits||[]).some(t=>t==='sig_karrigan'||t==='sig_gla1ve'));
+    let tactMult=1;
+    if(hasTactBrain){if(synMult<1)synMult=1;tactMult=1.1;}
+    return{raw,eff:raw*synMult*(1+this.chem/500)*tactMult};
+  },
+  buyP(id){
+    if(this.roster.length>=5)return UI.toast('阵容已满！');
+    const p=Market.pList.find(x=>x.id===id);if(!p)return;
+    const isRealLegend=p.isReal&&p.rarity==='legend';
+    const required=isRealLegend?Math.ceil(p.price*1.5):p.price;
+    if(this.money<required)return UI.toast(isRealLegend?`传奇选手需至少 $${required.toLocaleString()}`:'资金不足！');
+    this.money-=required;p.teamId='PLAYER';this.roster.push(p);this.chem=Math.max(0,this.chem-15);
+    Market.pList=Market.pList.filter(x=>x.id!==id);
+    UI.toast(isRealLegend?`✍ 重金签下传奇: ${p.name}`:`✍ 签下: ${p.name}`);UI.refresh();Market.renderAll();
+  },
+  buyC(id){
+    const c=Market.cList.find(x=>x.id===id);if(!c)return;
+    if(this.money<c.price)return UI.toast('资金不足！');
+    if(this.coach)UI.toast(`📢 已解雇原教练 ${this.coach.name}`);
+    this.money-=c.price;c.teamId='PLAYER';this.coach=c;
+    Market.cList=Market.cList.filter(x=>x.id!==id);
+    UI.toast(`✍ 签约教练: ${c.name}（战术${c.tactics}）`);UI.refresh();Market.renderAll();
+  },
+  fireP(id){
+    if(this.roster.length<=1)return UI.toast('至少保留一名选手！');
+    const p=this.roster.find(x=>x.id===id);if(p)p.teamId=null;
+    this.roster=this.roster.filter(x=>x.id!==id);UI.refresh();
+  },
+  fireC(){if(!this.coach)return;UI.toast(`解雇了教练 ${this.coach.name}`);this.coach.teamId=null;this.coach=null;UI.refresh();},
+  skipToEvent(){
+    // 最多推进 400 天防止死循环
+    for(let i=0;i<400;i++){
+      this.advanceDay();
+      if(!document.getElementById('pnl-hub').classList.contains('hidden'))break;
+      if(!document.getElementById('hltv-modal').classList.contains('hidden'))break;
+    }
+  }
+};
+
+// ─── Calendar ────────────────────────────────────────
+const Cal={
+  evs:[],
+  tierFormats:{
+    'major': {groupBo:1,knockoutBo:3,finalBo:5,teams:16},
+    'a-tier':{groupBo:1,knockoutBo:3,finalBo:3,teams:16},
+    'c-tier':{groupBo:1,knockoutBo:1,finalBo:1,teams:8}
+  },
+  genYear(y){
+    this.evs=[];
+    this.add(y,1,15,'IEM 卡托维兹','a-tier');
+    this.add(y,4,10,'PGL 巴黎 Major','major');
+    this.add(y,6,5,'ESL One 科隆','a-tier');
+    this.add(y,10,1,'BLAST 全球总决赛','major');
+    for(let m=0;m<12;m++)if(![1,4,6,10].includes(m))this.add(y,m,rnd(10,20),`CCT 线上 #${m+1}`,'c-tier');
+    this.evs.sort((a,b)=>a.date-b.date);UI.renderCal();
+  },
+  add(y,mo,d,name,tier){
+    const tf=this.tierFormats[tier];
+    const prize=tier==='major'?1250000:tier==='a-tier'?500000:50000;
+    const minFans=tier==='major'?3000:tier==='a-tier'?1000:100;
+    this.evs.push({id:'t'+rnd(1000,9999),date:new Date(y,mo,d),name,tier,teams:tf.teams,prize,minFans,isReg:false,fmt:tf});
+  },
+  today(dt){const s=fmtD(dt);return this.evs.find(e=>fmtD(e.date)===s)||null;},
+  register(id){
+    const ev=this.evs.find(e=>e.id===id);if(!ev)return;
+    if(Game.fans<ev.minFans)return UI.toast('粉丝不足！');
+    if(Game.roster.length<5)return UI.toast('阵容不满5人！');
+    ev.isReg=true;UI.toast(`✅ 报名: ${ev.name}`);UI.renderCal();
+  },
+  boLabel(bo){return bo===1?'BO1':bo===3?'BO3':'BO5';}
+};
+
+// ─── HLTV ────────────────────────────────────────────
+const HLTV={
+  calc(y){
+    World.players.forEach(p=>{
+      const m=Math.max(1,p.ys.matches);const avg=m<5?.5:p.ys.ratingSum/m;
+      p._sc=avg*60+p.ys.mvps*15+p.ys.majorWins*10+p.ys.wins*5;
+      if(p.ys.matches>0){if(!p.history)p.history=[];p.history.push({year:y,team:p.teamId==='PLAYER'?'我的战队':(p.teamId||'FA'),rating:avg.toFixed(2),mvps:p.ys.mvps});}
+    });
+    const top=[...World.players].sort((a,b)=>b._sc-a._sc).slice(0,20);
+    const el=document.getElementById('hltv-year');if(el)el.innerText=`Player of the Year ${y}`;
+    const list=document.getElementById('hltv-list');
+    if(list)list.innerHTML=top.map((p,i)=>{
+      const avg=p.ys.matches>0?(p.ys.ratingSum/p.ys.matches).toFixed(2):'0.00';
+      const team=p.teamId==='PLAYER'?'YOUR TEAM':(p.teamId||'FA');
+      return`<div class="hrow ${i<3?'top3':''}">
+        <div class="hrank">#${i+1}</div>
+        <div style="font-size:16px;font-weight:700;color:#fff;flex:1;margin-left:14px">${p.name} <span style="font-size:11px;color:var(--dim)">[${team}]</span></div>
+        <div style="display:flex;gap:18px;font-size:12px;color:var(--dim);text-align:right">
+          <div style="width:70px">Matches<br><b style="color:var(--fg)">${p.ys.matches}</b></div>
+          <div style="width:90px">Rating 2.0<br><b style="color:#fff">${avg}</b></div>
+          <div style="width:60px">MVPs<br><b style="color:var(--mvp)">${p.ys.mvps}</b></div>
+        </div>
+      </div>`;
+    }).join('');
+    const modal=document.getElementById('hltv-modal');if(modal)modal.classList.remove('hidden');
+    World.players.forEach(p=>p.ys={matches:0,ratingSum:0,mvps:0,majorWins:0,wins:0});
+  }
+};
+
+// ─── BP（Ban/Pick）────────────────────────────────────
+// 【修复】合并了原来两个互相冲突的 start() 函数，统一变量命名
+const BP={
+  maps:[],steps:[],stepIdx:0,
+  playerBans:[],playerPicks:[],
+  aiBans:[],aiPicks:[],
+  decider:null,    // string: 天图地图名
+  oppTeam:null,
+  boFormat:1,
+  mapStrP:[],   // [{map, str}]
+  mapStrAI:[],  // [{map, str}]
+
+  start(){
+    // 从 Tour 获取对手信息
+    const round=Tour.rounds[Tour.playerRound];
+    if(!round)return UI.toast('赛程数据异常！');
+    const idx=Tour.playerMatchIdx;
+    const m=round[idx];
+    if(!m||!m.t1||!m.t2)return UI.toast('对手信息异常！');
+
+    this.oppTeam=m.t1.isPlayer?m.t2:m.t1;
+    this.boFormat=Tour.currentBo();
+    const y=Game.date.getFullYear();
+    this.maps=[...MapUtils.poolForYear(y)];
+
+    // 计算双方各图实力
+    this.mapStrP=MapUtils.teamPoolRatings(Game.roster,Game.coach,y);
+    this.mapStrAI=MapUtils.teamPoolRatings(this.oppTeam.roster,this.oppTeam.coach||null,y);
+
+    // karrigan 战术大师：直接封锁对方最强图
+    const hasKarrigan=Game.roster.some(p=>(p.traits||[]).some(t=>t==='sig_karrigan'||t==='sig_gla1ve'));
+    if(hasKarrigan&&this.mapStrAI.length>0){
+      const bestMap=[...this.mapStrAI].sort((a,b)=>b.str-a.str)[0].map;
+      this.maps=this.maps.filter(map=>map!==bestMap);
+      this.mapStrP=this.mapStrP.filter(x=>x.map!==bestMap);
+      this.mapStrAI=this.mapStrAI.filter(x=>x.map!==bestMap);
+      UI.toast(`🧠 战术大脑生效！直接Ban掉了对手强图 ${MapUtils.display(bestMap)}`);
+    }
+
+    // 生成BP步骤
+    this.playerBans=[];this.playerPicks=[];
+    this.aiBans=[];this.aiPicks=[];
+    this.decider=null;this.stepIdx=0;this.steps=[];
+
+    if(this.boFormat===1){
+      // BO1: 双方各ban一张，剩余随机选一张
+      this.steps=[
+        {actor:'player',action:'ban'},{actor:'ai',action:'ban'}
+      ];
+    }else if(this.boFormat===3){
+      // BO3: ban×2各方, pick×1各方, 天图×1
+      this.steps=[
+        {actor:'player',action:'ban'},{actor:'ai',action:'ban'},
+        {actor:'player',action:'ban'},{actor:'ai',action:'ban'},
+        {actor:'player',action:'pick'},{actor:'ai',action:'pick'}
+        // 剩余1张=天图，在_finish中处理
+      ];
+    }else{
+      // BO5: ban×1各方, pick×2各方, 天图×1
+      this.steps=[
+        {actor:'player',action:'ban'},{actor:'ai',action:'ban'},
+        {actor:'player',action:'pick'},{actor:'ai',action:'pick'},
+        {actor:'player',action:'pick'},{actor:'ai',action:'pick'}
+        // 剩余1张=天图
+      ];
+    }
+    this.steps.forEach(s=>{s.done=false;s.map=null;});
+
+    const overlay=document.getElementById('bp-overlay');
+    if(overlay)overlay.classList.remove('hidden');
+    this.render();
+    this._checkAutoStep();
+  },
+
+  _availMaps(){
+    const used=new Set([...this.playerBans,...this.aiBans,...this.playerPicks,...this.aiPicks]);
+    if(this.decider)used.add(this.decider);
+    return this.maps.filter(m=>!used.has(m));
+  },
+
+  _checkAutoStep(){
+    if(this.stepIdx>=this.steps.length){this._finish();return;}
+    const step=this.steps[this.stepIdx];
+    if(step.actor==='ai'){setTimeout(()=>this._aiStep(),600);}
+  },
+
+  _aiStep(){
+    if(this.stepIdx>=this.steps.length){this._finish();return;}
+    const step=this.steps[this.stepIdx];
+    const avail=this._availMaps();
+    if(!avail.length){this._finish();return;}
+    const tactics=(this.oppTeam&&this.oppTeam.coach)?this.oppTeam.coach.tactics:50;
+    const precision=.4+tactics*.005;
+    let chosen;
+    if(step.action==='ban'){
+      const sorted=[...this.mapStrP].filter(x=>avail.includes(x.map)).sort((a,b)=>b.str-a.str);
+      chosen=(Math.random()<precision&&sorted.length>0)?sorted[0].map:pick(avail);
+      this.aiBans.push(chosen);
+    }else{
+      const sorted=[...this.mapStrAI].filter(x=>avail.includes(x.map)).sort((a,b)=>b.str-a.str);
+      chosen=(Math.random()<precision&&sorted.length>0)?sorted[0].map:pick(avail);
+      this.aiPicks.push(chosen);
+    }
+    step.done=true;step.map=chosen;
+    this.stepIdx++;
+    this.render();
+    this._checkAutoStep();
+  },
+
+  playerClick(map){
+    if(this.stepIdx>=this.steps.length)return;
+    const step=this.steps[this.stepIdx];
+    if(step.actor!=='player')return;
+    const avail=this._availMaps();
+    if(!avail.includes(map))return;
+    if(step.action==='ban')this.playerBans.push(map);
+    else this.playerPicks.push(map);
+    step.done=true;step.map=map;
+    this.stepIdx++;
+    this.render();
+    this._checkAutoStep();
+  },
+
+  _finish(){
+    const avail=this._availMaps();
+    // 天图
+    if(avail.length>0){
+      if(this.boFormat===1){
+        // BO1: 剩余随机选一张作为唯一图
+        const chosen=pick(avail);
+        this.decider=chosen;
+        this.playerPicks=[chosen]; // BO1 只有这一张图
+      }else{
+        this.decider=pick(avail);
+      }
+    }
+    // 构建系列赛地图顺序（重置 Tour 的系列赛状态）
+    let seriesMaps=[];
+    if(this.boFormat===1){
+      seriesMaps=[this.playerPicks[0]||this.decider||this.maps[0]];
+    }else{
+      // BO3: p-pick, ai-pick, decider
+      // BO5: p-pick1, ai-pick1, p-pick2, ai-pick2, decider
+      // 交替顺序排列
+      const maxPicks=this.boFormat===3?1:2;
+      for(let i=0;i<maxPicks;i++){
+        if(this.playerPicks[i])seriesMaps.push(this.playerPicks[i]);
+        if(this.aiPicks[i])seriesMaps.push(this.aiPicks[i]);
+      }
+      if(this.decider)seriesMaps.push(this.decider);
+    }
+
+    // 【关键修复】统一重置系列赛状态
+    Tour.seriesMaps=seriesMaps;
+    Tour.seriesMapIdx=0;
+    Tour.seriesWinsP=0;
+    Tour.seriesWinsAI=0;
+    Tour._mapResults=[];
+
+    const overlay=document.getElementById('bp-overlay');
+    if(overlay)overlay.classList.add('hidden');
+    Match.beginSeries();
+  },
+
+  render(){
+    const step=this.stepIdx<this.steps.length?this.steps[this.stepIdx]:null;
+    const avail=this._availMaps();
+    const bo=this.boFormat;
+
+    const bpTitle=document.getElementById('bp-title');
+    const bpSub=document.getElementById('bp-sub');
+    const bpPhase=document.getElementById('bp-phase');
+    if(bpTitle)bpTitle.innerText=`地图 Ban/Pick — ${Cal.boLabel(bo)}`;
+    if(bpSub)bpSub.innerHTML=`对阵: ${this.oppTeam?teamNameWithStar(this.oppTeam.name):''}`;
+
+    let phaseText='';
+    if(!step){phaseText='BP 完成，即将开始比赛...';}
+    else{phaseText=`${step.actor==='player'?'▶ 你的操作':'⏳ 对手操作中...'} — ${step.action==='ban'?'选择 BAN 掉一张地图':'选择 PICK 一张地图'}`;}
+    if(bpPhase)bpPhase.innerText=phaseText;
+
+    // 槽位数量
+    const banCount=bo===5?1:2;
+    const pickCount=bo===1?0:bo===3?1:2;
+    const pBanSlots=Array(banCount).fill(null).map((_,i)=>this.playerBans[i]);
+    const aiBanSlots=Array(banCount).fill(null).map((_,i)=>this.aiBans[i]);
+    const pPickSlots=Array(pickCount).fill(null).map((_,i)=>this.playerPicks[i]);
+    const aiPickSlots=Array(pickCount).fill(null).map((_,i)=>this.aiPicks[i]);
+
+    const slotHtml=(slots,type)=>slots.map(m=>`<div class="bp-pick-slot ${m?('filled-'+type):''}">${m?MapUtils.display(m):'—'}</div>`).join('');
+    const bpStatus=document.getElementById('bp-status');
+    if(bpStatus)bpStatus.innerHTML=`
+      <div class="bp-team">
+        <div class="bp-team-name" style="color:var(--win)">🛡 我的战队</div>
+        <div style="font-size:10px;color:var(--dim);margin-bottom:4px">BAN</div>
+        <div class="bp-picks-row">${slotHtml(pBanSlots,'loss')}</div>
+        ${bo>1?`<div style="font-size:10px;color:var(--dim);margin:6px 0 4px">PICK</div><div class="bp-picks-row">${slotHtml(pPickSlots,'win')}</div>`:''}
+      </div>
+      <div style="font-size:24px;color:var(--dim);align-self:center">⚔</div>
+      <div class="bp-team">
+        <div class="bp-team-name" style="color:var(--loss)">🔫 ${this.oppTeam?teamNameWithStar(this.oppTeam.name):''}</div>
+        <div style="font-size:10px;color:var(--dim);margin-bottom:4px">BAN</div>
+        <div class="bp-picks-row">${slotHtml(aiBanSlots,'loss')}</div>
+        ${bo>1?`<div style="font-size:10px;color:var(--dim);margin:6px 0 4px">PICK</div><div class="bp-picks-row">${slotHtml(aiPickSlots,'loss')}</div>`:''}
+      </div>`;
+
+    const bpMaps=document.getElementById('bp-maps');
+    if(bpMaps)bpMaps.innerHTML=this.maps.map(map=>{
+      const isBannedP=this.playerBans.includes(map),isBannedAI=this.aiBans.includes(map);
+      const isPickedP=this.playerPicks.includes(map),isPickedAI=this.aiPicks.includes(map);
+      const isDecider=this.decider===map;
+      const isAvail=avail.includes(map);
+      const canClick=step?.actor==='player'&&isAvail;
+      const strP=(this.mapStrP.find(x=>x.map===map)||{str:50}).str;
+      const strAI=(this.mapStrAI.find(x=>x.map===map)||{str:50}).str;
+      let cls='bp-map';
+      if(isBannedP||isBannedAI)cls+=' banned';
+      else if(isPickedP)cls+=' picked-p';
+      else if(isPickedAI)cls+=' picked-ai';
+      else if(isDecider)cls+=' decider';
+      else if(!canClick)cls+=' disabled';
+      let label='';
+      if(isBannedP)label='<div style="font-size:9px;color:var(--loss)">BAN（己方）</div>';
+      else if(isBannedAI)label='<div style="font-size:9px;color:var(--loss)">BAN（对方）</div>';
+      else if(isPickedP)label='<div style="font-size:9px;color:var(--win)">PICK（己方）</div>';
+      else if(isPickedAI)label='<div style="font-size:9px;color:var(--loss)">PICK（对方）</div>';
+      else if(isDecider)label='<div style="font-size:9px;color:var(--purple)">天图</div>';
+      else{const diff=strP-strAI;label=`<div style="font-size:9px;color:${diff>5?'var(--win)':diff<-5?'var(--loss)':'var(--dim)'}">${diff>5?'我方优势':diff<-5?'对方优势':'势均力敌'}</div>`;}
+      return`<div class="${cls}" onclick="BP.playerClick('${map}')">
+        <div class="bp-map-name">${MapUtils.display(map)}</div>
+        ${label}
+        <div class="bp-map-bars">
+          <div class="bp-bar" style="background:var(--win);width:${strP*.7}px" title="我方:${strP}"></div>
+          <div class="bp-bar" style="background:var(--loss);width:${strAI*.7}px" title="对方:${strAI}"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--dim);margin-top:3px"><span>${strP}</span><span>${strAI}</span></div>
+      </div>`;
+    }).join('');
+  }
+};
+
+// ─── Tour ────────────────────────────────────────────
+const Tour={
+  ev:null,rounds:[],phase:'idle',
+  playerRound:-1,playerMatchIdx:-1,
+  pStats:new Map(),prize:0,
+  // 系列赛状态（由 BP._finish() 统一设置）
+  seriesMaps:[],seriesMapIdx:0,
+  seriesWinsP:0,seriesWinsAI:0,
+  _mapResults:[],
+
+  start(ev){
+    this.ev=ev;this.pStats.clear();this.prize=0;this.phase='hub';
+    this.playerRound=0;this.playerMatchIdx=-1;
+    // 重置系列赛状态
+    this.seriesMaps=[];this.seriesMapIdx=0;this.seriesWinsP=0;this.seriesWinsAI=0;this._mapResults=[];
+
+    const playerTeam={id:'__player__',name:'我的战队',rating:Game.power().eff,isPlayer:true,roster:Game.roster,coach:Game.coach};
+    Game.roster.forEach(p=>this._initT(p,playerTeam));
+
+    const pool=[...World.teams].sort(()=>Math.random()-.5);
+    const all=[playerTeam];
+    for(let i=1;i<ev.teams;i++){
+      const t=pool[i-1];if(!t)break;
+      all.push(t);t.roster.forEach(p=>this._initT(p,t));
+    }
+    all.sort(()=>Math.random()-.5);
+
+    this.rounds=[];
+    const cur=[];
+    for(let i=0;i<all.length;i+=2)cur.push({t1:all[i],t2:all[i+1]||null,winner:null});
+    this.rounds.push(cur);
+    let n=cur.length;
+    while(n>1){n=Math.ceil(n/2);this.rounds.push(Array.from({length:n},()=>({t1:null,t2:null,winner:null})));}
+
+    // 找到玩家对手位置
+    const playerIdx=this.rounds[0].findIndex(m=>m.t1?.isPlayer||m.t2?.isPlayer);
+    this.playerMatchIdx=playerIdx;
+
+    // 处理 bye（对手为 null，直接晋级）
+    this.rounds[0].forEach((m,idx)=>{
+      if(!m.t2){m.winner=m.t1;this._promote(0,idx,m.t1);}
+    });
+
+    this._simAI(0);
+    UI.showHub();
+  },
+
+  currentBo(){
+    if(!this.ev)return 1;
+    const fmt=this.ev.fmt;
+    const maxR=this.rounds.length-1;
+    if(this.playerRound===maxR)return fmt.finalBo;
+    if(this.playerRound>=maxR-1)return fmt.knockoutBo;
+    return fmt.groupBo;
+  },
+
+  _initT(p,team){
+    if(!this.pStats.has(p.id))
+      this.pStats.set(p.id,{player:p,team,played:0,score:0,topRating:0,finalRating:null});
+  },
+
+  _simAI(roundIdx){
+    const matches=this.rounds[roundIdx];if(!matches)return;
+    const isFinal=roundIdx===this.rounds.length-1;
+    matches.forEach((m,idx)=>{
+      if(m.winner||!m.t1||!m.t2||m.t1.isPlayer||m.t2.isPlayer)return;
+      const t1w=(m.t1.rating||70)*(0.8+Math.random()*.4)>(m.t2.rating||70)*(0.8+Math.random()*.4);
+      m.winner=t1w?m.t1:m.t2;
+      this._promote(roundIdx,idx,m.winner);
+      const fake=(roster,win)=>roster.forEach(p=>{
+        const r=(win?0.95+Math.random()*.4:0.7+Math.random()*.4)*p.form;
+        const sc=0.35*r+0.20*(r*.9)+Math.random()*.2;
+        const tr=this.pStats.get(p.id);
+        if(tr){tr.played++;tr.score+=sc*(isFinal?1.6:1.1);if(r>tr.topRating)tr.topRating=r;if(isFinal)tr.finalRating=r;}
+        p.ys.matches++;p.ys.ratingSum+=parseFloat(r.toFixed(2));
+      });
+      fake(m.t1.roster||[],t1w);fake(m.t2.roster||[],!t1w);
+    });
+  },
+
+  _promote(roundIdx,matchIdx,winner){
+    const next=this.rounds[roundIdx+1];if(!next)return;
+    const slot=next[Math.floor(matchIdx/2)];
+    if(slot){if(matchIdx%2===0)slot.t1=winner;else slot.t2=winner;}
+  },
+
+  _advWin(winner){
+    this._promote(this.playerRound,this.playerMatchIdx,winner);
+    this.playerRound++;
+    if(this.playerRound>=this.rounds.length){this.phase='done';this._finalize(winner);return;}
+    this._simAI(this.playerRound);
+    const newIdx=this.rounds[this.playerRound].findIndex(m=>m.t1?.isPlayer||m.t2?.isPlayer);
+    this.playerMatchIdx=newIdx;
+    // 重置系列赛状态，准备下一场
+    this.seriesMaps=[];this.seriesMapIdx=0;this.seriesWinsP=0;this.seriesWinsAI=0;this._mapResults=[];
+    this.phase='hub';UI.showHub();
+  },
+
+  _advLoss(aiWinner){
+    // 【修复】函数只接受1个参数
+    this._promote(this.playerRound,this.playerMatchIdx,aiWinner);
+    this.phase='eliminated';
+    for(let r=this.playerRound+1;r<this.rounds.length;r++)this._simAI(r);
+    const finalWinner=this.rounds[this.rounds.length-1][0]?.winner;
+    this._finalize(finalWinner||aiWinner);
+  },
+
+  _finalize(champ){
+    let cands=[...this.pStats.values()].filter(t=>t.played>0).map(t=>({
+      ...t,avgScore:t.score/t.played,
+      mvpElig:t.topRating>=1.15&&(t.finalRating===null||t.finalRating>=1.0)&&(t.team.id===champ.id||Math.random()<.05)
+    })).sort((a,b)=>b.avgScore-a.avgScore);
+    const mvp=cands.find(c=>c.mvpElig)||cands[0];
+    const evps=cands.filter(c=>c.player.id!==mvp?.player.id).slice(0,5);
+    if(mvp)mvp.player.ys.mvps++;
+    (champ.roster||[]).forEach(p=>{p.ys.wins++;if(this.ev.tier==='major')p.ys.majorWins++;});
+    if(champ.isPlayer){
+      Game.trophies.push({event:this.ev.name,date:new Date(Game.date),rank:'Champion',prize:this.prize});
+      Game.fans+=Math.floor(this.ev.prize/500);
+      SaveManager.save();
+    }
+    const maxR=this.rounds.length-1;
+    let rank='🏆 赛事总冠军',prize=0;
+    if(!champ.isPlayer){
+      const fromF=maxR-this.playerRound;
+      if(fromF===0){rank='🥈 亚军';prize=Math.floor(this.ev.prize*.4);}
+      else if(fromF===1){rank='🥉 四强';prize=Math.floor(this.ev.prize*.15);}
+      else if(fromF===2){rank='🏅 八强';prize=Math.floor(this.ev.prize*.05);}
+      else{rank='💔 遗憾出局';}
+    }else{prize=this.ev.prize;rank='🏆 赛事总冠军';}
+    this.prize=prize;
+    UI.renderAwards(mvp,evps,champ,rank,prize);
+  },
+
+  recordStats(arr,isFinal){
+    const maxR=this.rounds.length-1;
+    const w=this.playerRound===maxR?1.6:this.playerRound===maxR-1?1.3:1.1;
+    arr.forEach(ps=>{
+      const t=this.pStats.get(ps.id);if(!t)return;
+      t.played++;t.score+=ps.score*(isFinal?w*1.25:w);
+      if(ps.rating>t.topRating)t.topRating=ps.rating;
+      if(isFinal)t.finalRating=ps.rating;
+    });
+  },
+
+  quit(){this.ev=null;this.phase='idle';UI.page('schedule');},
+
+  closeAwards(){
+    if(this.prize>0){Game.money+=this.prize;Game.fans+=Math.floor(this.prize/200);}
+    this.ev=null;this.phase='idle';UI.page('schedule');UI.refresh();
+  }
+};
+
+// ─── Match ───────────────────────────────────────────
+const Match={
+  s:null,
+  _autoTimer:null,
+
+  beginSeries(){
+    if(!Tour.seriesMaps||Tour.seriesMaps.length===0){
+      UI.toast('系列赛地图为空，请重新BP！');return;
+    }
+    this._startMap(0);
+  },
+
+  _startMap(mapIdx){
+    const map=Tour.seriesMaps[mapIdx];
+    if(!map){UI.toast('地图数据异常！');return;}
+    const round=Tour.rounds[Tour.playerRound];
+    if(!round)return;
+    const m=round[Tour.playerMatchIdx];
+    if(!m)return;
+    const opp=m.t1.isPlayer?m.t2:m.t1;
+    const era=Game.eraObj;
+
+    const mkP=p=>({
+      id:p.id,name:p.name,rating:p.rating||60,role:p.role,form:p.form||1,ref:p,
+      kills:0,assists:0,deaths:0,dmg:0,
+      entryK:0,entryA:0,clutch:0,kastR:0,multiK:0,
+      rating2:0,score:0,impact:0,adr:0,kast:0,
+      _legendFlyUsed:false
+    });
+
+    const mapBonusP=MapUtils.teamMapStr(Game.roster,Game.coach,map)/100-.5;
+    const mapBonusAI=MapUtils.teamMapStr((opp.roster||[]),opp.coach||null,map)/100-.5;
+
+    this.s={
+      round:0,era,map,
+      winR:era.winR,halfR:era.halfR,target:era.winR,
+      sA:0,sB:0,monA:800,monB:800,lsA:0,lsB:0,
+      ctIsA:Math.random()>.5,isOT:false,otSeg:0,otSegStart:0,
+      opp,matchRef:m,mapBonusP,mapBonusAI,
+      tA:(Game.roster||[]).map(mkP),
+      tB:(opp.roster||[]).map(mkP),
+      over:false
+    };
+
+    // 更新 UI
+    const liveOpp=document.getElementById('live-opp');
+    if(liveOpp)liveOpp.innerHTML=teamNameWithStar(opp.name);
+    const liveTitle=document.getElementById('live-title');
+    if(liveTitle)liveTitle.innerText=`— ${MapUtils.display(map)} — (图 ${mapIdx+1}/${Tour.seriesMaps.length})`;
+    const otInd=document.getElementById('ot-ind');
+    if(otInd)otInd.classList.add('hidden');
+    const matchlog=document.getElementById('matchlog');
+    if(matchlog)matchlog.innerHTML='';
+    UI.showLive();
+    this._updateSeriesBar();
+  },
+
+  _updateSeriesBar(){
+    const maps=Tour.seriesMaps;
+    const bo=Tour.currentBo();
+    const need=Math.ceil(bo/2);
+    const winsHtml=`<span style="font-size:13px;color:var(--dim)">我方 <b style="color:var(--win)">${Tour.seriesWinsP}</b> : <b style="color:var(--loss)">${Tour.seriesWinsAI}</b> 对方 | 需 <b style="color:var(--gold)">${need}</b> 胜</span>`;
+    const html=maps.map((m,i)=>{
+      let cls='series-map-btn';
+      if(i<Tour.seriesMapIdx){
+        cls+=' '+(Tour._mapResults[i]==='p'?'won-p':'won-ai');
+      }else if(i===Tour.seriesMapIdx)cls+=' active';
+      return`<span class="${cls}">${MapUtils.display(m)}</span>`;
+    }).join('');
+    const bar=document.getElementById('series-bar');
+    if(bar)bar.innerHTML=winsHtml+html;
+  },
+
+  buyStatus(money,pistol,ot){
+    if(pistol)return{lvl:'Eco',name:'手枪局',mult:.95};
+    if(ot)return{lvl:'Full',name:'加时长枪',mult:1.0};
+    if(money>=4200)return{lvl:'Full',name:'长枪局',mult:1.0};
+    if(money>=2000)return{lvl:'Force',name:'强起局',mult:.65};
+    return{lvl:'Eco',name:'纯E局',mult:.35};
+  },
+
+  round(){
+    if(!this.s||this.s.over)return;
+    const s=this.s,era=s.era;
+
+    // 半场换边
+    if(!s.isOT&&s.round===era.halfR){
+      s.ctIsA=!s.ctIsA;s.monA=800;s.monB=800;s.lsA=0;s.lsB=0;
+      UI.log('🔄 半场换边（$800）','spec');
+    }
+    // OT 判断
+    if(!s.isOT&&s.sA===s.target-1&&s.sB===s.target-1){
+      s.isOT=true;s.otSeg++;s.otSegStart=s.round;
+      s.target+=4;s.monA=10000;s.monB=10000;s.lsA=0;s.lsB=0;
+      const otEl=document.getElementById('ot-ind');if(otEl)otEl.classList.remove('hidden');
+      UI.log(`🔥 比分持平！进入OT（$10000）`,'spec');
+    }
+    // OT 换边
+    if(s.isOT&&(s.round-s.otSegStart)===3){
+      s.ctIsA=!s.ctIsA;s.monA=10000;s.monB=10000;s.lsA=0;s.lsB=0;
+      UI.log(`🔄 OT换边（$10000）`,'spec');
+    }
+
+    s.round++;
+    const pistol=!s.isOT?(s.round===1||s.round===era.halfR+1):((s.round-s.otSegStart)===1);
+    const bA=this.buyStatus(s.monA,pistol,s.isOT);
+    const bB=this.buyStatus(s.monB,pistol,s.isOT);
+
+    const baseP=Game.power().eff*(1+Game.chem/200)*(1+s.mapBonusP*.3);
+    const baseAI=((s.tB||[]).reduce((a,b)=>a+b.rating*b.form,0)/Math.max(1,s.tB.length))*1.05*(1+s.mapBonusAI*.3);
+
+    const calcTraitMult=(team,isTeamA,buyInfo)=>{
+      let mult=1;
+      const myScore=isTeamA?s.sA:s.sB,oppScore=isTeamA?s.sB:s.sA;
+      const isMatchPoint=myScore===s.target-1;
+      const isWinningBig=(myScore-oppScore)>5;
+      const mapBonus=isTeamA?s.mapBonusP:s.mapBonusAI;
+      team.forEach(p=>{
+        const ts=p.ref.traits||[];
+        if(ts.includes('headshot')&&buyInfo.lvl==='Full')mult+=0.03;
+        if(ts.includes('leader')&&p.role==='IGL')mult+=0.04;
+        if(ts.includes('volatile'))mult*=(0.9+Math.random()*0.3);
+        if(ts.includes('magician')&&(pistol||buyInfo.lvl==='Eco'))mult+=0.06;
+        if(ts.includes('adaptive')&&mapBonus<0)mult+=0.05;
+        if(ts.includes('cold')&&isMatchPoint)mult+=0.02;
+        if(ts.includes('joker')&&isWinningBig&&Math.random()<.05)mult-=0.10;
+        if(ts.includes('sig_s1mple')&&(isTeamA?s.sA-s.sB:s.sB-s.sA)<=-4){
+          mult+=0.15;
+          if(!p._legendFlyUsed){p._legendFlyUsed=true;UI.log(`⚡ <span style="color:#ffd700;font-weight:700">[LEGEND] ${p.name}</span> 开启天外飞仙，接管比赛！`,'spec');}
+        }
+        if(ts.includes('sig_zywoo'))mult+=0.02;
+      });
+      return mult;
+    };
+
+    const traitMultA=calcTraitMult(s.tA,true,bA);
+    const traitMultB=calcTraitMult(s.tB,false,bB);
+    const pA=baseP*bA.mult*traitMultA*(0.8+Math.random()*.4);
+    const pB=baseAI*bB.mult*traitMultB*(0.8+Math.random()*.4);
+    const upA=bA.lvl==='Eco'&&bB.lvl==='Full'&&Math.random()<.12;
+    const upB=bB.lvl==='Eco'&&bA.lvl==='Full'&&Math.random()<.12;
+    const aWins=upA?true:(upB?false:(pA>pB));
+
+    this._micro(aWins?s.tA:s.tB,aWins?s.tB:s.tA);
+
+    const tIsA=!s.ctIsA,bomb=Math.random()<.35;
+    let bonA=0,bonB=0;
+    if(tIsA&&!aWins&&bomb)bonA=800;
+    if(!tIsA&&aWins&&bomb)bonB=800;
+    const lbl=s.isOT?`[OT${s.otSeg}·R${s.round-s.otSegStart}]`:pistol?'[手枪]':`[R${s.round}]`;
+
+    if(aWins){
+      s.sA++;s.monA=Math.min(16000,s.monA+3250);
+      s.monB=Math.min(16000,s.monB+1400+s.lsB*500+bonB);
+      s.lsB=Math.min(4,s.lsB+1);s.lsA=era.lossReset?0:Math.max(0,s.lsA-1);
+      if(upA)UI.log(`${lbl} 🔥 ECO翻盘！`,'eco');else UI.log(`${lbl} 赢下回合。`,'win');
+    }else{
+      s.sB++;s.monB=Math.min(16000,s.monB+3250);
+      s.monA=Math.min(16000,s.monA+1400+s.lsA*500+bonA);
+      s.lsA=Math.min(4,s.lsA+1);s.lsB=era.lossReset?0:Math.max(0,s.lsB-1);
+      if(upB)UI.log(`${lbl} 🔥 对手ECO翻盘！`,'eco');else UI.log(`${lbl} 回合失利。`,'loss');
+    }
+    UI.updateScore();
+    if(s.sA>=s.target||s.sB>=s.target)this.end();
+  },
+
+  _micro(win,lose){
+    const s=this.s;
+    const gp=(team,opp)=>{
+      let t=team.reduce((s,p)=>s+p.rating*p.form,0),r=Math.random()*t;
+      for(const p of team){
+        let w=p.rating*p.form;
+        if(p.ref.rarity!=='legend'&&opp.some(x=>x.ref.rarity==='legend'))w*=0.95;
+        if((p.ref.traits||[]).includes('headshot'))w*=1.25;
+        r-=w;if(r<=0)return p;
+      }
+      return team[0];
+    };
+    const logKill=(k,v,isEntry)=>{
+      const kt=s.tA.includes(k)?'CT':'T',vt=s.tA.includes(v)?'CT':'T';
+      const kc=kt==='CT'?'var(--ct)':'var(--t)',vc=vt==='CT'?'var(--ct)':'var(--t)';
+      const kName=k.ref.rarity==='legend'?`<span style="color:#ffd700;font-weight:700">${k.name}</span>`:k.name;
+      const vName=v.ref.rarity==='legend'?`<span style="color:#ffd700;font-weight:700">${v.name}</span>`:v.name;
+      const kIcons=((k.ref.rarity==='legend'?'👑':'')+((k.ref.traits||[]).includes('headshot')?'🎯':''));
+      UI.log(`<span style="color:${kc}">[${kt}] ${kName}</span> ${kIcons} ${isEntry?'💥':'🔫'} <span style="color:${vc}">[${vt}] ${vName}</span>`,'');
+    };
+    const entry=win.find(p=>p.role==='Entry')||gp(win,lose),victim=gp(lose,win);
+    entry.entryA++;victim.entryA++;
+    let ek,ev;
+    if(Math.random()<.65){entry.entryK++;entry.kills++;victim.deaths++;entry.dmg+=100;ek=entry;ev=victim;}
+    else{victim.entryK++;victim.kills++;entry.deaths++;victim.dmg+=100;ek=victim;ev=entry;}
+    if(Math.random()<.5)logKill(ek,ev,true);
+    const wk=Math.floor(Math.random()*2)+4,lk=Math.floor(Math.random()*4);
+    const km=new Map();
+    const addK=(k,v)=>{k.kills++;v.deaths++;k.dmg+=80+Math.random()*40;km.set(k,(km.get(k)||0)+1);if(Math.random()<.25)logKill(k,v,false);if(Math.random()<.5){const a=gp(win.includes(k)?win:lose,win.includes(k)?lose:win);if(a!==k){a.assists++;a.dmg+=30+Math.random()*30;}}};
+    for(let i=1;i<wk;i++)addK(gp(win,lose),gp(lose,win));
+    for(let i=(entry.deaths>0?1:0);i<lk;i++)addK(gp(lose,win),gp(win,lose));
+    for(const[p,k]of km)if(k>=2)p.multiK++;
+    if(lk>=4){
+      const sv=gp(win,lose);const ts=sv.ref.traits||[];
+      const isZywoo=ts.includes('sig_zywoo'),hasCore=ts.includes('legend_core');
+      const st=s.tA.includes(sv)?'CT':'T',sc=st==='CT'?'var(--ct)':'var(--t)';
+      if(isZywoo&&Math.random()<.55){sv.clutch++;UI.log(`🔥 <span style="color:${sc};font-weight:900">[${st}] ${sv.name}</span> 开启载物领域！`,'spec');}
+      else if(hasCore&&Math.random()<.5){sv.clutch++;UI.log(`💫 <span style="color:${sc};font-weight:900">[${st}] ${sv.name}</span> 触发绝对核心！`,'spec');}
+      else if(Math.random()<.4){sv.clutch++;UI.log(`🔥 <span style="color:${sc};font-weight:900">[${st}] ${sv.name}</span> 极限1vX残局！`,'spec');}
+    }
+    [...win,...lose].forEach(p=>{if((km.get(p)||0)>0||Math.random()<.3||(win.includes(p)&&Math.random()<.8))p.kastR++;});
+  },
+
+  auto(){
+    if(this._autoTimer)clearInterval(this._autoTimer);
+    this._autoTimer=setInterval(()=>{if(!this.s||this.s.over){clearInterval(this._autoTimer);this._autoTimer=null;}else this.round();},40);
+  },
+
+  end(){
+    const s=this.s;s.over=true;
+    const playerWon=s.sA>s.sB;
+    const isFinal=Tour.playerRound===Tour.rounds.length-1;
+    const maxR=Tour.rounds.length-1;
+    const isSemiOrFinal=isFinal||Tour.playerRound===maxR-1;
+    const liveCtrl=document.getElementById('live-ctrl');
+    if(liveCtrl)liveCtrl.classList.add('hidden');
+
+    const calc=team=>team.forEach(p=>{
+      p.adr=(p.dmg/Math.max(1,s.round)).toFixed(1);
+      p.kast=((p.kastR/Math.max(1,s.round))*100).toFixed(1);
+      p.impact=Math.max(.5,(p.multiK*.4+p.entryK*.25+p.clutch*.6)).toFixed(2);
+      let raw=((p.kills+p.assists*.3)/Math.max(1,p.deaths))*.45+(p.adr/100)*.2+(p.kast/100)*.2+parseFloat(p.impact)*.15;
+      if(isSemiOrFinal&&(p.ref.traits||[]).includes('legend_winner')&&raw<1.10){
+        raw=1.10;UI.log(`✨ <span style="color:#ffd700;font-weight:700">[LEGEND] ${p.name}</span> 触发天生赢家！`,'spec');
+      }
+      p.rating2=raw.toFixed(2);
+      const cs=p.clutch*.5,es=p.entryA>0?p.entryK/p.entryA:0;
+      p.score=0.35*raw+0.20*parseFloat(p.impact)+0.15*(p.adr/100)+0.10*(p.kast/100)+0.10*cs+0.10*es;
+      if(isFinal)p.score*=1.25;
+      p.ref.ys.matches++;p.ref.ys.ratingSum+=parseFloat(p.rating2);
+    });
+    calc(s.tA);calc(s.tB);
+    s.tA.sort((a,b)=>b.score-a.score);s.tB.sort((a,b)=>b.score-a.score);
+    const all=[...s.tA,...s.tB].sort((a,b)=>b.score-a.score);
+    s.mvp=all[0];s.evps=all.slice(1,4).filter(p=>p.rating2>=1.15);
+    Tour.recordStats([...s.tA,...s.tB].map(p=>({id:p.id,rating:parseFloat(p.rating2),score:p.score})),isFinal);
+
+    if(!Tour._mapResults)Tour._mapResults=[];
+    Tour._mapResults[Tour.seriesMapIdx]=playerWon?'p':'ai';
+    if(playerWon)Tour.seriesWinsP++;else Tour.seriesWinsAI++;
+    this._updateSeriesBar();
+
+    // 更新按钮文字
+    const bo=Tour.currentBo(),need=Math.ceil(bo/2);
+    const seriesDone=Tour.seriesWinsP>=need||Tour.seriesWinsAI>=need;
+    const nextBtn=document.getElementById('next-map-btn');
+    if(nextBtn)nextBtn.innerText=seriesDone?'查看系列赛结果 ➔':'下一张图 ➔';
+
+    UI.renderPostStats(s);
+  },
+
+  exit(){
+    const bo=Tour.currentBo(),winsNeeded=Math.ceil(bo/2);
+    if(Tour.seriesWinsP>=winsNeeded||Tour.seriesWinsAI>=winsNeeded){
+      // 系列赛结束
+      const seriesPlayerWon=Tour.seriesWinsP>=winsNeeded;
+      const m=Tour.rounds[Tour.playerRound][Tour.playerMatchIdx];
+      const playerTeam=m.t1.isPlayer?m.t1:m.t2;
+      const aiTeam=m.t1.isPlayer?m.t2:m.t1;
+      m.winner=seriesPlayerWon?playerTeam:aiTeam;
+
+      const postStats=document.getElementById('post-stats');
+      const pnlLive=document.getElementById('pnl-live');
+      if(postStats)postStats.classList.add('hidden');
+      if(pnlLive)pnlLive.classList.add('hidden');
+
+      if(seriesPlayerWon)Tour._advWin(playerTeam);
+      else Tour._advLoss(aiTeam); // 【修复】只传1个参数
+    }else{
+      // 继续下一张图
+      Tour.seriesMapIdx++;
+      const postStats=document.getElementById('post-stats');
+      const matchlog=document.getElementById('matchlog');
+      const liveCtrl=document.getElementById('live-ctrl');
+      const otInd=document.getElementById('ot-ind');
+      if(postStats)postStats.classList.add('hidden');
+      if(matchlog)matchlog.innerHTML='';
+      if(liveCtrl)liveCtrl.classList.remove('hidden');
+      if(otInd)otInd.classList.add('hidden');
+      this._startMap(Tour.seriesMapIdx);
+    }
+  }
+};
+
+// ─── UI ──────────────────────────────────────────────
+const UI={
+  page(id){
+    document.querySelectorAll('.main>div').forEach(p=>p.classList.add('hidden'));
+    const pg=document.getElementById('page-'+id);if(pg)pg.classList.remove('hidden');
+    document.querySelectorAll('.nav').forEach(b=>b.classList.remove('on'));
+    const navMap={home:0,schedule:1,market:2,match:3,hall:4};
+    if(navMap[id]!=null){const navBtns=document.querySelectorAll('.nav');if(navBtns[navMap[id]])navBtns[navMap[id]].classList.add('on');}
+    if(id==='schedule')this.renderCal();
+    if(id==='hall')this.renderHall();
+  },
+
+  renderHall(){
+    const t=Game.trophies||[];
+    const el=document.getElementById('trophy-case');if(!el)return;
+    if(!t.length){el.innerHTML='<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--dim)">暂无荣誉，请努力夺冠！</div>';return;}
+    el.innerHTML=t.map(x=>`<div class="card" style="text-align:center;border-color:var(--gold-dim)">
+      <div style="font-size:32px;margin-bottom:10px">🏆</div>
+      <div style="color:var(--gold);font-weight:700;font-size:15px;margin-bottom:4px">${x.event}</div>
+      <div style="color:var(--dim);font-size:12px">${x.date?new Date(x.date).getFullYear():'Unknown'}</div>
+      <div style="color:#86efac;font-size:13px;margin-top:6px">奖金 $${(x.prize||0).toLocaleString()}</div>
+    </div>`).join('');
+  },
+
+  showPlayer(id){
+    const p=World.players.find(x=>x.id===id);if(!p)return;
+    const careerName=document.getElementById('career-name');
+    if(careerName)careerName.innerHTML=`${p.name} <span style="font-size:14px;color:var(--dim)">生涯数据</span>`;
+    const protoEl=document.getElementById('career-proto');
+    if(protoEl){
+      if(p.isReal&&(p.realName||p.handle||p.country)){
+        protoEl.classList.remove('hidden');
+        protoEl.innerHTML=`<div style="font-size:11px;color:var(--gold);margin-bottom:6px">📜 历史原型</div>
+          该选手对应现实中的 <b style="color:#fff">${p.handle||p.name}</b>（${p.realName||'—'}），${p.country||'—'}籍。`;
+      }else{protoEl.classList.add('hidden');}
+    }
+    const tbody=document.getElementById('career-table');
+    if(tbody){
+      const rows=(p.history||[]).map(c=>`<tr>
+        <td>${c.year}</td>
+        <td style="color:${c.team==='我的战队'?'var(--win)':'#fff'}">${c.team}</td>
+        <td style="${c.rating>=1.15?'color:var(--win)':c.rating<0.9?'color:var(--loss)':''}">${c.rating}</td>
+        <td style="${c.mvps>0?'color:var(--mvp)':''}">${c.mvps||'-'}</td>
+      </tr>`).join('');
+      const curM=Math.max(1,p.ys.matches);const curR=curM<5?0:p.ys.ratingSum/curM;
+      tbody.innerHTML=rows+`<tr style="background:rgba(255,255,255,0.05)">
+        <td>${Game.date.getFullYear()} (进行中)</td>
+        <td style="color:${p.teamId==='PLAYER'?'var(--win)':'#fff'}">${p.teamId==='PLAYER'?'我的战队':(p.teamId||'FA')}</td>
+        <td>${curR>0?curR.toFixed(2):'-'}</td><td>${p.ys.mvps||'-'}</td>
+      </tr>`;
+    }
+    const modal=document.getElementById('career-modal');if(modal)modal.classList.remove('hidden');
+  },
+
+  refresh(){
+    const setText=(id,v)=>{const el=document.getElementById(id);if(el)el.innerText=v;};
+    const setHTML=(id,v)=>{const el=document.getElementById(id);if(el)el.innerHTML=v;};
+    setText('ui-date',fmtD(Game.date));
+    setText('ui-era',Game.eras[Game.era].name);
+    setText('ui-money','$'+Game.money.toLocaleString());
+    setText('ui-salary','-$'+Game.weeklySalary.toLocaleString());
+    setText('ui-fans',Game.fans.toLocaleString());
+    setText('ui-season',Game.date.getFullYear());
+    const pw=Game.power(); // 这里会更新 synCache
+    setText('ui-raw',pw.raw.toFixed(1));
+    setText('ui-eff',pw.eff.toFixed(1));
+    setText('ui-chem',Game.chem.toFixed(0)+'%');
+    setText('ui-chem-max',Game.chemCap()+'%');
+    setText('ui-fatigue',Game.fatigue+'%');
+    setHTML('ui-syn',Game.synCache.msgs.join(''));
+    this.renderRoster();this.renderCoach();this.renderMapPool();
+  },
+
+  renderRoster(){
+    const yr=Game.date.getFullYear(),pool=MapUtils.poolForYear(yr);
+    const el=document.getElementById('roster-container');if(!el)return;
+    el.innerHTML=Game.roster.map(p=>{
+      const myMaps=(p.maps||[]).filter(m=>pool.includes(m.map));
+      const ageWarn=p.age>=32?`<div class="age-warn">⚠ ${p.age}岁，注意老化</div>`:'';
+      const traitBadges=(p.traits||[]).map(t=>{const T=TRAITS[t]||LEGEND_TRAITS[t];return T?`<span style="background:${T.color};font-size:9px;padding:2px 4px;border-radius:3px;margin-right:2px;color:#fff" title="${T.desc}">${T.name}</span>`:''}).join('');
+      const rar=RARITY[p.rarity||'common'];
+      return`<div class="card" onclick="UI.showPlayer('${p.id}')" style="cursor:pointer;border:${rar.border};${rar.shadow?`box-shadow:${rar.shadow}`:''}">
+        <span class="rbadge" style="background:${ROLES[p.role].color}">${ROLES[p.role].zh}</span>
+        <div class="cname" style="${rar.name==='传奇'?'color:#ffd700;font-weight:700':''}">${p.name} <span style="font-size:10px;color:var(--dim)">(${p.age}岁)</span></div>
+        <div style="margin:2px 0">${traitBadges}</div>
+        <div class="cstat"><span>能力</span><b>${p.rating}</b></div>
+        <div class="cstat"><span>潜力</span><b style="color:${p.potential>=85?'var(--gold)':p.potential>=75?'var(--win)':'var(--dim)'}">${p.potential}</b></div>
+        <div class="cstat"><span>状态</span><b>${((p.form||1)*100).toFixed(0)}%</b></div>
+        ${ageWarn}
+        <div class="mapbars">${myMaps.slice(0,3).map(m=>`<div class="mapbar-row"><span class="mapbar-name">${MapUtils.display(m.map)}</span><div class="mapbar-bg"><div class="mapbar-fill" style="width:${m.str}%;background:var(--win)"></div></div><span style="font-size:9px;color:var(--dim)">${m.str}</span></div>`).join('')}
+        ${myMaps.length===0?'<div style="font-size:10px;color:var(--dim)">当前图池无擅长图</div>':''}</div>
+        <button class="btn danger full" onclick="event.stopPropagation();Game.fireP('${p.id}')">解雇</button>
+      </div>`;
+    }).join('');
+  },
+
+  renderCoach(){
+    const c=Game.coach;
+    const el=document.getElementById('coach-container');if(!el)return;
+    el.innerHTML=c?`<div class="card coach-card">
+      <span class="rbadge" style="background:var(--blue)">教练</span>
+      <div class="cname">${c.name} <span style="font-size:10px;color:var(--dim)">(${c.age}岁)</span></div>
+      <div class="cstat"><span>战术水平</span><b style="color:var(--blue)">${c.tactics}</b></div>
+      <div class="cstat"><span>磨合上限</span><b>${Game.chemCap()}%</b></div>
+      <div class="cstat"><span>BP精准度</span><b>${Math.round(40+c.tactics*.5)}%</b></div>
+      <div class="mapbars">${(c.maps||[]).slice(0,2).map(m=>`<div class="mapbar-row"><span class="mapbar-name">${MapUtils.display(m.map)}</span><div class="mapbar-bg"><div class="mapbar-fill" style="width:${m.str}%;background:var(--blue)"></div></div><span style="font-size:9px;color:var(--dim)">${m.str}</span></div>`).join('')}</div>
+      <button class="btn danger full" onclick="Game.fireC()">解雇教练</button>
+    </div>`:`<div style="text-align:center;padding:20px;color:var(--dim);font-size:12px;background:var(--panel2);border:1px dashed var(--border);border-radius:7px">暂无教练<br><span style="font-size:11px">前往转会市场签约教练</span></div>`;
+  },
+
+  renderMapPool(){
+    const yr=Game.date.getFullYear();
+    const ratings=MapUtils.teamPoolRatings(Game.roster,Game.coach,yr);
+    const el=document.getElementById('ui-mappool');if(!el)return;
+    el.innerHTML=ratings.map(({map,str})=>{
+      const cls=str>=70?'str-high':str>=55?'str-mid':'str-low';
+      const col=str>=70?'var(--map-str)':str>=55?'var(--map-mid)':'var(--map-weak)';
+      return`<div class="mapchip ${cls}">
+        <div style="font-weight:700;font-size:12px">${MapUtils.display(map)}</div>
+        <div class="maptag" style="color:${col}">${str.toFixed(0)} ${str>=70?'强势':''}</div>
+        <div class="str-bar" style="width:${str}%;background:${col}"></div>
+      </div>`;
+    }).join('');
+  },
+
+  renderCal(){
+    const evs=Cal.evs.filter(e=>e.date>=Game.date).slice(0,12);
+    const boTag=(tier,phase)=>{const f=Cal.tierFormats[tier];const bo=phase==='final'?f.finalBo:phase==='ko'?f.knockoutBo:f.groupBo;const cls=bo===1?'bo-bo1':bo===3?'bo-bo3':'bo-bo5';return`<span class="bo-tag ${cls}">${Cal.boLabel(bo)}</span>`;};
+    const el=document.getElementById('cal-container');if(!el)return;
+    el.innerHTML=evs.length?evs.map(e=>`<div class="cev ${e.tier==='major'?'major':e.tier==='a-tier'?'atier':'ctier'}">
+      <div class="cev-date">${fmtD(e.date).substring(5)}</div>
+      <div class="cev-body">
+        <div class="cev-name" style="color:${e.tier==='major'?'var(--mvp)':'#fff'}">${e.name}
+          ${boTag(e.tier,'group')} → ${boTag(e.tier,'ko')}${e.tier==='major'?` → ${boTag(e.tier,'final')}`:''}
+        </div>
+        <div class="cev-sub">准入: ${e.minFans}粉丝 | 奖金: $${e.prize.toLocaleString()} | 队伍: ${e.teams}</div>
+      </div>
+      <div>${e.isReg?'<button class="btn dark" disabled>已报名</button>':`<button class="btn" onclick="Cal.register('${e.id}')">报名</button>`}</div>
+    </div>`).join(''):'<div style="color:var(--dim);padding:20px;text-align:center">本年赛事已结束，推进到下一年吧</div>';
+  },
+
+  showHub(){
+    this.page('match');
+    ['pnl-empty','pnl-awards'].forEach(id=>{const el=document.getElementById(id);if(el)el.classList.add('hidden');});
+    const pnlHub=document.getElementById('pnl-hub');if(pnlHub)pnlHub.classList.remove('hidden');
+    const pnlLive=document.getElementById('pnl-live');if(pnlLive)pnlLive.classList.add('hidden');
+    const ev=Tour.ev;if(!ev)return;
+    const hubName=document.getElementById('hub-name');if(hubName)hubName.innerText=ev.name;
+    const hubDesc=document.getElementById('hub-desc');
+    if(hubDesc)hubDesc.innerText=`🏆 奖金: $${ev.prize.toLocaleString()} | 队伍: ${ev.teams} | 格式: 小组${Cal.boLabel(ev.fmt.groupBo)} → 淘汰${Cal.boLabel(ev.fmt.knockoutBo)}${ev.tier==='major'?' → 决赛'+Cal.boLabel(ev.fmt.finalBo):''}`;
+    this.renderBracket();this._updateHub();
+  },
+
+  _updateHub(){
+    const pnl=document.getElementById('pnl-next');if(!pnl)return;
+    if(Tour.phase!=='hub'||Tour.playerRound<0||Tour.playerRound>=Tour.rounds.length){pnl.classList.add('hidden');return;}
+    const round=Tour.rounds[Tour.playerRound];
+    const idx=Tour.playerMatchIdx;
+    if(idx<0||idx>=round.length){pnl.classList.add('hidden');return;}
+    const m=round[idx];
+    if(!m||m.winner){pnl.classList.add('hidden');return;}
+    const opp=m.t1.isPlayer?m.t2:m.t1;
+    if(!opp){pnl.classList.add('hidden');return;}
+    const hubOpp=document.getElementById('hub-opp');if(hubOpp)hubOpp.innerHTML=teamNameWithStar(opp.name);
+    const bo=Tour.currentBo();
+    const hubFormat=document.getElementById('hub-format');if(hubFormat)hubFormat.innerText=`赛制: ${Cal.boLabel(bo)} | 当前阶段: 第${Tour.playerRound+1}轮（共${Tour.rounds.length}轮）`;
+    this._renderIntel(opp);
+    pnl.classList.remove('hidden');
+  },
+
+  _renderIntel(opp){
+    const yr=Game.date.getFullYear();
+    const oppRatings=MapUtils.teamPoolRatings(opp.roster||[],opp.coach||null,yr);
+    const myRatings=MapUtils.teamPoolRatings(Game.roster,Game.coach,yr);
+    const sorted=[...oppRatings].sort((a,b)=>b.str-a.str);
+    const top3=sorted.slice(0,3),bot2=sorted.slice(-2);
+    const html=`
+      <div class="intel-row"><span style="color:var(--dim)">对手强图</span><span>${top3.map(x=>`<span style="color:var(--loss);font-weight:700">${MapUtils.display(x.map)}</span>`).join(' ')}</span></div>
+      <div class="intel-row"><span style="color:var(--dim)">对手弱图</span><span>${bot2.map(x=>`<span style="color:var(--win);font-weight:700">${MapUtils.display(x.map)}</span>`).join(' ')}</span></div>
+      <div class="intel-row"><span style="color:var(--dim)">我方强图</span><span>${[...myRatings].sort((a,b)=>b.str-a.str).slice(0,3).map(x=>`<span style="color:var(--win);font-weight:700">${MapUtils.display(x.map)}</span>`).join(' ')}</span></div>
+      <div class="intel-row"><span style="color:var(--dim)">对手战力</span><b style="color:var(--fg)">${((opp.roster||[]).reduce((s,p)=>s+(p.rating||60)*(p.form||1),0)/Math.max(1,(opp.roster||[]).length)).toFixed(1)}</b></div>
+      ${opp.coach?`<div class="intel-row"><span style="color:var(--dim)">对手教练</span><b style="color:var(--blue)">${opp.coach.name}（战术${opp.coach.tactics}）</b></div>`:''}`;
+    const ic=document.getElementById('intel-content');if(ic)ic.innerHTML=html;
+  },
+
+  renderBracket(){
+    const c=document.getElementById('bracket');if(!c)return;c.innerHTML='';
+    Tour.rounds.forEach(round=>{
+      const col=document.createElement('div');col.className='bcol';
+      round.forEach(m=>{
+        const isP=m.t1?.isPlayer||m.t2?.isPlayer;
+        const s1=m.winner&&m.t1?` <span class="bscore" style="color:${m.winner===m.t1?'var(--win)':'var(--loss)'}">✓</span>`:'';
+        const s2=m.winner&&m.t2?` <span class="bscore" style="color:${m.winner===m.t2?'var(--win)':'var(--loss)'}">✓</span>`:'';
+        col.innerHTML+=`<div class="bnode ${isP?'pnode':''}">
+          <div class="bteam ${m.t1?.isPlayer?'isp':''} ${m.winner===m.t1?'won':''}">${m.t1?teamNameWithStar(m.t1.name):'等待'}${s1}</div>
+          <div style="font-size:9px;color:var(--dim2);text-align:center;padding:2px 0">VS</div>
+          <div class="bteam ${m.t2?.isPlayer?'isp':''} ${m.winner===m.t2?'won':''}">${m.t2?teamNameWithStar(m.t2.name):'等待'}${s2}</div>
+        </div>`;
+      });
+      c.appendChild(col);
+    });
+  },
+
+  showLive(){
+    const pnlHub=document.getElementById('pnl-hub');if(pnlHub)pnlHub.classList.add('hidden');
+    const pnlLive=document.getElementById('pnl-live');if(pnlLive)pnlLive.classList.remove('hidden');
+    const postStats=document.getElementById('post-stats');if(postStats)postStats.classList.add('hidden');
+    const liveCtrl=document.getElementById('live-ctrl');if(liveCtrl)liveCtrl.classList.remove('hidden');
+    this.updateScore();
+  },
+
+  updateScore(){
+    const s=Match.s;if(!s)return;
+    const scoreA=document.getElementById('score-a');if(scoreA)scoreA.innerText=s.sA;
+    const scoreB=document.getElementById('score-b');if(scoreB)scoreB.innerText=s.sB;
+    const sideA=s.ctIsA?{t:'CT',c:'bct'}:{t:'T',c:'bt'};
+    const sideB=s.ctIsA?{t:'T',c:'bt'}:{t:'CT',c:'bct'};
+    const badgeA=document.getElementById('badge-a');if(badgeA){badgeA.className=sideA.c;badgeA.innerText=sideA.t;}
+    const badgeB=document.getElementById('badge-b');if(badgeB){badgeB.className=sideB.c;badgeB.innerText=sideB.t;}
+    const pistol=!s.isOT&&(s.round===0||s.round===s.era.halfR);
+    const bA=Match.buyStatus(s.monA,pistol,s.isOT),bB=Match.buyStatus(s.monB,pistol,s.isOT);
+    const cls=x=>x.lvl==='Eco'?'style="color:var(--loss)"':x.lvl==='Force'?'style="color:var(--gold)"':'style="color:var(--win)"';
+    const ecoA=document.getElementById('eco-a');if(ecoA)ecoA.innerHTML=`$${s.monA} | 连败${s.lsA} <span ${cls(bA)}>[${bA.name}]</span>`;
+    const ecoB=document.getElementById('eco-b');if(ecoB)ecoB.innerHTML=`$${s.monB} | 连败${s.lsB} <span ${cls(bB)}>[${bB.name}]</span>`;
+  },
+
+  log(msg,type,style=''){
+    const l=document.getElementById('matchlog');if(!l)return;
+    const d=document.createElement('div');d.className=`mlog-e ${type}`;
+    if(style)d.style=style;d.innerHTML=msg;l.appendChild(d);l.scrollTop=l.scrollHeight;
+  },
+
+  renderPostStats(s){
+    const el=document.getElementById('post-stats');if(!el)return;
+    el.classList.remove('hidden');
+    const row=p=>{
+      const isMvp=p===s.mvp,isEvp=(s.evps||[]).includes(p);
+      const b=isMvp?`<span class="bmvp">MVP</span>`:isEvp?`<span class="bevp">EVP</span>`:'';
+      const cl=p.rating2>=1.15?'g':p.rating2<.9?'r':'';
+      return`<tr><td>${p.name}${b}</td><td>${p.kills}-${p.deaths}</td><td>${p.assists}</td><td>${p.adr}</td><td>${p.kast}%</td><td>${p.impact}</td><td class="${cl}">${p.rating2}</td></tr>`;
+    };
+    const hd=`<tr><th>Player</th><th>K-D</th><th>A</th><th>ADR</th><th>KAST</th><th>Imp.</th><th>Rating</th></tr>`;
+    const tblA=document.getElementById('tbl-a');if(tblA)tblA.innerHTML=hd+(s.tA||[]).map(row).join('');
+    const tblB=document.getElementById('tbl-b');if(tblB)tblB.innerHTML=hd+(s.tB||[]).map(row).join('');
+    const tblBHdr=document.getElementById('tbl-b-hdr');if(tblBHdr)tblBHdr.innerHTML=`🔫 ${teamNameWithStar(s.opp.name)}`;
+    const bo=Tour.currentBo(),need=Math.ceil(bo/2);
+    const awards=document.getElementById('match-awards');
+    if(awards)awards.innerHTML=`<div><span style="color:var(--mvp);font-weight:700">⭐ Match MVP:</span> <b style="color:#fff;font-size:15px">${s.mvp?s.mvp.name:'—'}</b> <span style="font-size:11px;color:var(--dim);margin-left:8px">${s.mvp?`Rating:${s.mvp.rating2} ADR:${s.mvp.adr} Impact:${s.mvp.impact}`:''}</span></div>
+      <div style="margin-top:6px;font-size:11px;color:var(--dim)">系列赛: 我方 <b style="color:var(--win)">${Tour.seriesWinsP}</b> - <b style="color:var(--loss)">${Tour.seriesWinsAI}</b> 对方 | 还需 <b style="color:var(--gold)">${Math.max(0,need-Math.max(Tour.seriesWinsP,Tour.seriesWinsAI))}</b> 胜结束</div>`;
+    setTimeout(()=>{const live=document.getElementById('pnl-live');if(live)live.scrollTo({top:1000,behavior:'smooth'});},100);
+  },
+
+  renderAwards(mvp,evps,champ,rank,prize){
+    ['pnl-hub','pnl-live'].forEach(id=>{const el=document.getElementById(id);if(el)el.classList.add('hidden');});
+    const pnlAwards=document.getElementById('pnl-awards');if(pnlAwards)pnlAwards.classList.remove('hidden');
+    const awardsSub=document.getElementById('awards-sub');
+    if(awardsSub)awardsSub.innerHTML=`
+      <div style="display:inline-block;padding:9px 18px;background:rgba(34,197,94,.08);border-radius:6px;color:#86efac;margin-right:12px;border:1px solid rgba(34,197,94,.2)">👑 冠军: <b style="color:#fff;font-size:17px">${champ.name}</b> ${isRealTeam(champ.name)?'<span style="color:#ffd700">⭐</span>':''}</div>
+      <div style="display:inline-block;padding:9px 18px;background:var(--panel2);border-radius:6px;color:var(--dim);border:1px solid var(--border)">名次: <b style="color:var(--gold);font-size:15px">${rank}</b> | 奖金: <b style="color:#86efac;font-size:15px">$${prize.toLocaleString()}</b></div>`;
+    const awardsMvp=document.getElementById('awards-mvp');
+    if(awardsMvp)awardsMvp.innerHTML=mvp?`<div class="arow mvp-row">
+      <div>
+        <div style="font-size:11px;color:var(--mvp);font-weight:700;margin-bottom:3px">🏅 赛事 MVP</div>
+        <div style="font-size:20px;font-weight:800;color:#fff">⭐ ${mvp.player.name} <span style="font-size:11px;color:var(--dim);font-weight:400">[${mvp.team.name}]</span></div>
+      </div>
+      <div style="text-align:right;font-size:12px;color:var(--dim);line-height:1.8">
+        <div>综合得分 <b style="color:var(--mvp)">${mvp.avgScore.toFixed(2)}</b></div>
+        <div>最高Rating <b style="color:#fff">${typeof mvp.topRating==='number'?mvp.topRating.toFixed(2):mvp.topRating}</b></div>
+      </div>
+    </div>`:'<div style="color:var(--dim);padding:12px">暂无MVP数据</div>';
+    const awardsEvp=document.getElementById('awards-evp');
+    if(awardsEvp)awardsEvp.innerHTML=(evps||[]).map(e=>`<div class="arow evp-row">
+      <div style="font-size:14px;font-weight:700;color:#eee">🎖 ${e.player.name} <span style="font-size:10px;color:var(--dim)">[${e.team.name}]</span></div>
+      <div style="font-size:11px;color:var(--dim)">得分 <b style="color:var(--evp)">${e.avgScore.toFixed(2)}</b> | 场次 ${e.played}</div>
+    </div>`).join('');
+  },
+
+  showEventTicker(msg){
+    let t=document.querySelector('.event-ticker');
+    if(t){clearTimeout(t._timer);t.remove();}
+    t=document.createElement('div');t.className='event-ticker';t.innerText='📰 '+msg;
+    document.body.appendChild(t);t._timer=setTimeout(()=>t.remove(),5000);
+  },
+
+  toast(msg){
+    let t=document.querySelector('.toast');if(t)t.remove();
+    t=document.createElement('div');t.className='toast';t.innerText=msg;
+    document.body.appendChild(t);setTimeout(()=>t.remove(),3500);
+  }
+};
+
+window.onload=()=>Game.init();
+</script>
+</body>
+</html>
