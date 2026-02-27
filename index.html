@@ -227,8 +227,9 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .hamburger span{display:block;width:20px;height:2px;background:var(--fg);border-radius:2px;transition:.2s}
 
 /* 侧边栏在手机上变成左滑抽屉 */
-.sb-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:198;opacity:0;transition:opacity .25s}
-.sb-overlay.open{opacity:1}
+/* 关键：关闭时 pointer-events:none 确保不拦截任何点击 */
+.sb-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:198;opacity:0;transition:opacity .25s;pointer-events:none}
+.sb-overlay.open{opacity:1;pointer-events:auto}
 
 /* 手机底部快捷导航栏 */
 .mob-bottomnav{display:none;position:fixed;bottom:0;left:0;right:0;background:#0d0d10;border-top:1px solid var(--border);z-index:200;padding:0;justify-content:space-around;height:56px;align-items:stretch}
@@ -245,11 +246,14 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 
   /* ── 侧边栏变抽屉 ── */
   .sb{
-    position:fixed;top:0;left:-260px;width:260px;height:100%;
-    z-index:199;transition:transform .25s cubic-bezier(.4,0,.2,1);
+    position:fixed;top:0;left:0;width:260px;height:100%;
+    z-index:199;
+    transform:translateX(-260px);
+    transition:transform .25s cubic-bezier(.4,0,.2,1);
     overflow-y:auto;padding:16px 14px 80px;
+    pointer-events:none;
   }
-  .sb.open{transform:translateX(260px)}
+  .sb.open{transform:translateX(0);pointer-events:auto}
   .sb-overlay{display:block}
 
   /* ── 主内容区 ── */
