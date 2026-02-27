@@ -3771,8 +3771,10 @@ const Match={
       matchStats: {
         rounds: 0, kills: 0, deaths: 0, assists: 0, adr: 0, kast: 0,
         openingKills: 0, clutchWins: 0, multiKills: 0, impact: 0, rating: 0,
-        kastRounds: 0, damage: 0 // Internal tracking
+        kastRounds: 0, damage: 0
       },
+      // 每回合增量追踪（随 matchStats 一起每图重置）
+      _prevKills:0, _prevAssists:0, _prevDeaths:0,
       // 特质触发状态（每张地图重置）
       _legendFlyUsed:false,   // 天外飞仙：首次播报
       _s1mpleActive:false,    // 天外飞仙：本回合是否激活
@@ -4039,17 +4041,28 @@ const Match={
       }
     }
 
-    // 多杀 & KAST 结算
+    // 多杀 & KAST 结算（基于本回合增量，不用累计值比较）
     const allPlayers=[...attTeam,...defTeam];
     allPlayers.forEach(p=>{
-      if(p.matchStats.kills-(p._prevKills||0)>=3)p.matchStats.multiKills=(p.matchStats.multiKills||0)+1;
-      p._prevKills=p.matchStats.kills;
-      if(p.matchStats.kills>(p._prevRoundKills||0)||
-         p.matchStats.assists>(p._prevRoundAssists||0)||
-         p.matchStats.deaths===(p._prevRoundDeaths||0)){p.matchStats.kastRounds++;}
-      p._prevRoundKills=p.matchStats.kills;
-      p._prevRoundAssists=p.matchStats.assists;
-      p._prevRoundDeaths=p.matchStats.deaths;
+      const prevKills   = p._prevKills   || 0;
+      const prevAssists = p._prevAssists || 0;
+      const prevDeaths  = p._prevDeaths  || 0;
+
+      const thisRoundKills   = p.matchStats.kills   - prevKills;
+      const thisRoundAssists = p.matchStats.assists - prevAssists;
+      const thisRoundDeaths  = p.matchStats.deaths  - prevDeaths;
+
+      // 多杀：本回合 3 杀+
+      if(thisRoundKills >= 3) p.matchStats.multiKills = (p.matchStats.multiKills||0) + 1;
+
+      // KAST：本回合有击杀、助攻、或者没死，三者满足其一即算
+      if(thisRoundKills > 0 || thisRoundAssists > 0 || thisRoundDeaths === 0){
+        p.matchStats.kastRounds++;
+      }
+
+      p._prevKills   = p.matchStats.kills;
+      p._prevAssists = p.matchStats.assists;
+      p._prevDeaths  = p.matchStats.deaths;
       p.matchStats.rounds++;
     });
 
@@ -4091,39 +4104,57 @@ const Match={
     if(liveCtrl)liveCtrl.classList.add('hidden');
 
     const calc=team=>team.forEach(p=>{
-      // Use matchStats for calculation
       const s = p.matchStats;
       const rounds = Math.max(1, s.rounds);
-      
-      const kpr = s.kills / rounds;
-      const survivalRate = 1 - (s.deaths / rounds);
-      const impactScore = (s.openingKills + s.clutchWins * 1.5) / rounds;
-      const adr = s.damage / rounds;
-      const adrFactor = adr / 100;
-      const kast = (s.kastRounds / rounds) * 100;
-      const kastFactor = kast / 100;
-      
-      let rating = 
-          (kpr * 0.30) + 
-          (impactScore * 0.25) + 
-          (survivalRate * 0.15) + 
-          (adrFactor * 0.20) + 
-          (kastFactor * 0.10);
-      
-      // Bonus for Legend traits (optional, or remove if strictly stats based)
-      // User said: Rating只能由matchStats计算得出. So removing trait hacks here.
-      
+
+      // ── 基础数据 ──────────────────────────────────────
+      const kpr  = s.kills  / rounds;               // 每回合击杀，正常 0.5~1.0
+      const dpr  = s.deaths / rounds;               // 每回合死亡，正常 0.5~0.9
+      const apr  = s.assists / rounds;              // 每回合助攻
+
+      // ADR：每回合平均伤害，正常 60~120，clamp 防止异常值
+      const adr  = Math.min(200, s.damage / rounds);
+      const adrNorm = adr / 100;                    // 归一化到 ~0.6~1.2
+
+      // KAST：clamp 到 [0, 1]，避免累计 bug 导致超过 100%
+      const kastRate = Math.min(1, Math.max(0, s.kastRounds / rounds));
+
+      // Impact：opening + clutch，正常每回合 0~0.3
+      const impactRaw = (s.openingKills + (s.clutchWins||0) * 1.5) / rounds;
+      const impact = Math.min(0.5, impactRaw);      // clamp 上限
+
+      // ── HLTV Rating 2.0 近似公式 ─────────────────────
+      // 参考：Rating ≈ 0.0073*KAST + 0.3591*KPR - 0.5329*DPR + 0.2372*Impact + 0.0032*ADR + 0.1587
+      // 正常 Rating 范围：0.50 ~ 1.60，顶级选手可到 1.30 左右
+      let rating =
+          0.0073 * (kastRate * 100) +
+          0.3591 * kpr -
+          0.5329 * dpr +
+          0.2372 * impact +
+          0.0032 * adr +
+          0.1587;
+
+      // 助攻微加成（utility 选手补偿）
+      rating += apr * 0.05;
+
+      // 最终 clamp：0.30 ~ 2.00，超过 2 必然是数据异常
+      rating = Math.min(2.00, Math.max(0.30, rating));
+
       p.rating2 = rating.toFixed(2);
-      
-      // Update display properties for UI
-      p.kills = s.kills; p.deaths = s.deaths; p.assists = s.assists;
-      p.adr = adr.toFixed(1); p.kast = kast.toFixed(1); p.impact = (impactScore * 2.13).toFixed(2); // Scale impact for HLTV-like display (usually around 1.0)
-      
-      // Internal score for MVP selection (keep existing logic or use rating)
-      p.score = rating; 
-      
+
+      // 更新展示字段
+      p.kills   = s.kills;
+      p.deaths  = s.deaths;
+      p.assists = s.assists;
+      p.adr     = adr.toFixed(1);
+      p.kast    = (kastRate * 100).toFixed(1);
+      // Impact 缩放到 HLTV 展示范围（通常 0.5~1.5）
+      p.impact  = Math.min(2.5, impact * 3.5).toFixed(2);
+
+      p.score = rating;
+
       p.ref.ys.matches++;
-      p.ref.ys.ratingSum+=parseFloat(p.rating2);
+      p.ref.ys.ratingSum += rating;
       
       // Update Performance Tracker
       if(p.ref.performanceTracker) {
