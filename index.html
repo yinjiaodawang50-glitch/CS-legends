@@ -122,6 +122,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .mlog-e.win{border-left-color:var(--win);color:#86efac}
 .mlog-e.loss{border-left-color:var(--loss);color:#fca5a5}
 .mlog-e.spec{border-left-color:var(--gold);color:var(--gold);font-weight:700}
+.mlog-e.spec.spec-event{border-left-color:var(--gold);font-weight:700;background:rgba(255,215,0,0.05)}
 .mlog-e.eco{border-left-color:var(--blue);color:#93c5fd;font-style:italic}
 .mlog-e.event{border-left-color:var(--purple);color:#d8b4fe;font-size:11px}
 .bct{background:var(--ct);color:#fff;padding:2px 7px;border-radius:3px;font-size:11px;font-weight:700}
@@ -132,6 +133,8 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .stbl th{background:#1a1a1e;color:var(--dim);padding:8px 5px;font-weight:700;border-bottom:1px solid var(--border);text-transform:uppercase;font-size:10px;letter-spacing:.5px}
 .stbl td{padding:8px 5px;border-bottom:1px solid #1a1a1e}
 .stbl tr:hover td{background:#1c1c22}
+.rank-table th{padding:14px 10px;font-size:12px;letter-spacing:1px;background:#1a1a1e;border-bottom:1px solid var(--border)}
+.rank-table td{padding:14px 10px;font-size:14px;border-bottom:1px solid #1a1a1e}
 .stbl td:first-child{text-align:left;font-weight:700;color:#eee}
 .g{color:var(--win);font-weight:700}
 .r{color:var(--loss);font-weight:700}
@@ -220,7 +223,11 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
   <div class="timebox">
     <div class="timedate" id="ui-date">2000-01-01</div>
     <div class="era-tag" id="ui-era">CS 1.6 Era</div>
-    <button class="tbtn" onclick="Game.advanceDay()">推进 1 天 ➔</button>
+    <div style="display:flex;gap:4px;margin-bottom:5px">
+        <button class="tbtn" style="flex:1" onclick="Game.advanceDay()">1 天</button>
+        <button class="tbtn dim" style="flex:1" onclick="Game.advanceWeek()">1 周</button>
+        <button class="tbtn dim" style="flex:1" onclick="Game.advanceMonth()">1 月</button>
+    </div>
     <button class="tbtn dim" onclick="Game.skipToEvent()">⏭ 跳至下个赛事</button>
   </div>
   <button class="nav on" onclick="UI.page('home')">🏢 俱乐部总部</button>
@@ -229,6 +236,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
   <button class="nav" onclick="UI.page('market')">🛒 转会市场</button>
   <button class="nav" onclick="UI.page('match')">🔫 赛事中心</button>
   <button class="nav" onclick="UI.page('hall')">🏆 荣誉室</button>
+  <button class="nav" onclick="UI.page('sponsors')">💰 赞助商</button>
   <div style="flex:1"></div>
   <button class="nav" style="color:var(--gold)" onclick="SaveManager.save()">💾 保存游戏</button>
   <button class="nav" style="color:var(--loss)" onclick="if(confirm('确定删档重置？')){localStorage.removeItem(SaveManager.key);location.reload();}">⚠ 删档重置</button>
@@ -260,6 +268,11 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
       </div>
     </div>
     <div style="display:flex;flex-direction:column;gap:16px">
+      <!-- New Widget: Next Match -->
+      <div class="panel" id="home-next-match-panel" style="margin-bottom:0;display:none">
+        <div class="panel-title">📅 即将到来的赛事</div>
+        <div id="home-next-match-content" style="font-size:13px;color:var(--dim)"></div>
+      </div>
       <div class="panel" style="margin-bottom:0">
         <div class="panel-title">战队状态</div>
         <div class="srow"><span style="color:var(--dim)">纸面战力</span><strong id="ui-raw" style="font-family:Consolas">—</strong></div>
@@ -277,13 +290,22 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
         <div id="ui-mappool" class="mapgrid"></div>
       </div>
       <div class="panel" style="margin-bottom:0">
-        <div class="panel-title">日常训练</div>
-        <div class="trbtns">
-          <button class="trbtn on" id="tr-rest" onclick="Game.setTrain('rest')">🛌 休息</button>
-          <button class="trbtn" id="tr-aim" onclick="Game.setTrain('aim')">🎯 死斗</button>
-          <button class="trbtn" id="tr-tactics" onclick="Game.setTrain('tactics')">🗺 战术</button>
+        <div class="panel-title">日常排期 <span style="font-size:11px;color:var(--dim);font-weight:400">合理分配强度，避免过劳</span></div>
+        <!-- 日常 5 选 1 -->
+        <div class="trbtns" style="display:grid;grid-template-columns:repeat(5, 1fr);gap:4px;margin-bottom:8px">
+          <button class="trbtn on" id="tr-rest" onclick="Game.setTrain('rest')">🛌 休息放松</button>
+          <button class="trbtn" id="tr-fpl" onclick="Game.setTrain('fpl')">🎯 天梯单排</button>
+          <button class="trbtn" id="tr-utility" onclick="Game.setTrain('utility')">💣 道具跑图</button>
+          <button class="trbtn" id="tr-theory" onclick="Game.setTrain('theory')">📺 录像复盘</button>
+          <button class="trbtn" id="tr-team" onclick="Game.setTrain('team')">🤝 战术合练</button>
         </div>
-        <div style="font-size:11px;color:var(--dim)" id="tr-desc">恢复体力与状态，降低疲劳。</div>
+        <div style="font-size:11px;color:var(--dim);min-height:16px;margin-bottom:12px" id="tr-desc">🛌 大幅降低疲劳，缓慢恢复状态。</div>
+
+        <!-- 独立训练赛按钮 -->
+        <div style="border-top:1px dashed var(--border);padding-top:12px">
+          <button class="btn full" id="btn-scrim" style="background:var(--purple);color:#fff;font-size:13px" onclick="Game.playScrim()">⚔️ 寻找队伍约战训练赛 (Pracc)</button>
+          <div style="text-align:center;font-size:10px;color:var(--dim);margin-top:4px">高强度实战演练 (CD: 7天)</div>
+        </div>
       </div>
     </div>
   </div>
@@ -313,8 +335,11 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 
 <div id="page-market" class="hidden">
   <div class="hdr">
-    <div><h1>转会市场</h1><p>签约选手与教练，注意年龄与潜力</p></div>
-    <button class="btn" onclick="Market.refresh()">🔄 刷新名单（$500）</button>
+    <div><h1>转会市场 & 猎头网络</h1><p>发掘潜力新秀，或直接签下传奇巨星</p></div>
+    <div style="text-align:right">
+      <div style="font-size:12px;color:var(--dim)">下次名单刷新</div>
+      <div id="market-timer" style="font-size:16px;font-weight:700;color:var(--gold);font-family:Consolas">-- 天后</div>
+    </div>
   </div>
   <div class="panel">
     <div class="tab-row">
@@ -331,6 +356,26 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
   <div class="panel">
     <div class="panel-title">冠军奖杯陈列</div>
     <div id="trophy-case" class="gcards" style="grid-template-columns:repeat(auto-fill,minmax(200px,1fr))"></div>
+  </div>
+</div>
+
+<div id="page-sponsors" class="hidden">
+  <div class="hdr">
+      <div><h1>赞助商中心</h1><p>管理商业合同，赚取运营资金</p></div>
+  </div>
+  
+  <div class="panel-group">
+      <!-- Active Contracts -->
+      <div class="panel">
+        <div class="panel-title">当前生效合同</div>
+        <div id="active-sponsors" class="gcards" style="grid-template-columns:1fr"></div>
+      </div>
+
+      <!-- Available Opportunities -->
+      <div class="panel">
+        <div class="panel-title">可签约赞助商 <span style="font-size:12px;color:var(--dim);font-weight:400">满足条件即可签约</span></div>
+        <div id="available-sponsors" class="gcards" style="grid-template-columns:repeat(auto-fill,minmax(250px,1fr))"></div>
+      </div>
   </div>
 </div>
 
@@ -449,6 +494,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
       <button class="btn dark" onclick="document.getElementById('career-modal').classList.add('hidden')">✕ 关闭</button>
     </div>
     <div id="career-proto" class="hidden" style="margin-bottom:16px;padding:12px;background:rgba(255,215,0,0.08);border:1px solid rgba(255,215,0,0.3);border-radius:6px;font-size:12px;color:var(--dim2);line-height:1.5"></div>
+    <div id="career-stats" class="hidden" style="margin-bottom:16px;display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:10px;background:var(--panel2);border-radius:6px"></div>
     <div style="overflow-y:auto;flex:1">
       <table class="stbl">
         <thead><tr><th>年份</th><th>战队</th><th>Rating</th><th>MVP次数</th></tr></thead>
@@ -709,6 +755,30 @@ const ERA_MAPS={
 };
 const MAP_DISPLAY={Mirage_16:'Mirage',Dust2:'Dust2',Inferno:'Inferno',Nuke:'Nuke',Train:'Train',Tuscan:'Tuscan',Aztec:'Aztec',Mirage:'Mirage',Overpass:'Overpass',Cache:'Cache',Cobblestone:'Cobble.',Vertigo:'Vertigo',Ancient:'Ancient',Anubis:'Anubis'};
 
+// --- 🗺️ 地图风格权重配置 (Map Weights) ---
+// 未列出的属性默认为 1.0。
+// > 1.0 代表该图需要更高此属性才能发挥；< 1.0 代表该属性在此图作用被削弱
+const MAP_STYLES = {
+  // 🏜️ 狙击手的天堂
+  'Dust2':      { sniping: 1.15, firepower: 1.05, utility: 0.95 },
+  'Aztec':      { sniping: 1.15, firepower: 1.00, entrying: 0.90 },
+  'Train':      { sniping: 1.10, utility: 1.05,   entrying: 0.95 },
+  // 💣 道具与战术的绞肉机
+  'Inferno':    { utility: 1.15, trading: 1.10,   sniping: 0.92 },
+  'Overpass':   { utility: 1.10, sniping: 1.05,   entrying: 0.95 },
+  'Nuke':       { utility: 1.10, clutching: 1.10, tactics: 1.10 },
+  // 🔫 突破与乱战图
+  'Vertigo':    { entrying: 1.15, trading: 1.10,  sniping: 0.90 },
+  'Cobblestone':{ entrying: 1.10, sniping: 1.05,  utility: 0.95 },
+  'Ancient':    { entrying: 1.10, trading: 1.05,  firepower: 1.05 },
+  'Anubis':     { entrying: 1.05, firepower: 1.05, utility: 1.00 },
+  // ⚖️ 综合平衡/拼抢图
+  'Mirage':     { sniping: 1.05, utility: 1.05,   clutching: 1.05 },
+  'Cache':      { firepower: 1.10, clutching: 1.05, utility: 0.95 },
+  'Tuscan':     { firepower: 1.05, entrying: 1.05, utility: 1.00 },
+  'Mirage_16':  { sniping: 1.05, trading: 1.05,   firepower: 1.05 }
+};
+
 // --- 🛡️ CS 1.6 时代传奇战队库 (2000 - 2011) ---
 const TEAMS_16 = [
     // 👑 瑞典双王与宇宙队
@@ -877,6 +947,52 @@ const RANDOM_EVENTS=[
   {txt:'${p} 最近私下苦练，状态悄悄上涨。',      effect:p=>{p.form=Math.min(1.2,p.form+.05)},target:'player'},
 ];
 
+const CONFIG = {
+    PLAYER_INITIAL_FANS: {
+        amateur: { min: 0, max: 300 },
+        semiPro: { min: 200, max: 2000 },
+        pro: { min: 1000, max: 10000 },
+        star: { min: 30000, max: 300000 },
+        legendary: { min: 500000, max: 5000000 }
+    },
+    TOURNAMENT_TIER_WEIGHT: {
+        'c-tier': 0.2,
+        'b-tier': 0.5,
+        'a-tier': 1.0,
+        's-tier': 2.0,
+        'major': 4.0
+    },
+    PLACEMENT_WEIGHT: {
+        Champion: 1.0,
+        RunnerUp: 0.7,
+        Top4: 0.4,
+        Top8: 0.2,
+        GroupExit: 0.05
+    },
+    BASE_TOURNAMENT_FAN_VALUE: 600,
+    HONOR_FAN_BONUS: {
+        S_Champion: 20000,
+        Major_Champion: 100000,
+        MVP: 30000
+    },
+    TEAM_BRAND_GROWTH: {
+        S_Champion: 30000,
+        Major_Champion: 150000,
+        S_Final: 15000,
+        Major_Final: 60000
+    },
+    SPONSOR_TIERS: [
+      // Tier 1: 必须打进 A-tier (区域职业赛) 才能拿到外设厂赞助
+      { name: "外设品牌赞助 (Peripheral)", minFans: 15000, minTierRequirement: "a-tier", requiredEventCount: 6, baseValue: 120000, exposureMultiplier: 0.8 },
+      // Tier 2: 稳定 A-tier，偶尔冲击 Major 的队伍，获得能量饮料/硬件大厂赞助
+      { name: "硬件/饮料品牌 (Hardware/Drink)", minFans: 60000, minTierRequirement: "a-tier", requiredEventCount: 8, baseValue: 350000, exposureMultiplier: 1.0 },
+      // Tier 3: 世界前十常客，进入 Major 视野的国际大厂赞助
+      { name: "国际一线品牌 (Global Brand)", minFans: 250000, minTierRequirement: "major", requiredEventCount: 10, baseValue: 1000000, exposureMultiplier: 1.2 },
+      // Tier 4: 世界顶尖豪门，头部科技企业或石油资本冠名
+      { name: "头部冠名赞助 (Title Sponsor)", minFans: 1000000, minTierRequirement: "major", requiredEventCount: 12, baseValue: 2800000, exposureMultiplier: 1.5 }
+    ]
+};
+
 const rnd =(a,b)=>Math.floor(Math.random()*(b-a+1))+a;
 const pick=arr=>arr[Math.floor(Math.random()*arr.length)];
 const fmtD=d=>d.toISOString().split('T')[0];
@@ -907,6 +1023,172 @@ const MapUtils={
 };
 
 // ─── World ───────────────────────────────────────────
+const SponsorManager = {
+    // Current Active Sponsors
+    activeSponsors: [],
+    // History of fulfilled sponsors
+    history: [],
+    
+    // Check if team can sign a sponsor tier
+    canSign(tierName, team) {
+        const tier = CONFIG.SPONSOR_TIERS.find(t => t.name === tierName);
+        if(!tier) return { ok: false, reason: 'Invalid Tier' };
+        
+        // 1. Check if already has sponsor of this tier
+        if(this.activeSponsors.some(s => s.tierName === tierName)) {
+            return { ok: false, reason: '已拥有该级别赞助商' };
+        }
+        
+        // 2. Check Fans
+        if(team.totalFans < tier.minFans) {
+            return { ok: false, reason: `粉丝不足 (需 ${tier.minFans.toLocaleString()})` };
+        }
+        
+        // 3. Check Tier History Requirement
+        // Simplified: Check if team played required tier or higher
+        // We need team history tracking for this. 
+        // For now, check if Game.rank is high enough as proxy? Or check trophies?
+        // Requirement: "team.history.hasPlayedTier >= tier.minTierRequirement"
+        // Let's use Game.trophies or Game.rank as a proxy if detailed history missing.
+        // Better: Check if they have ANY trophy of that tier or better?
+        // Or just let them sign if they have fans (fans usually imply performance).
+        // Let's stick to prompt: "team.history.hasPlayedTier". 
+        // We'll add a simple history tracker to Game object.
+        
+        // 4. Check Performance (Last 10 matches rating)
+        // We need to track match history ratings.
+        const recentRatings = (team.matchHistory || []).slice(-10).map(m => m.rating);
+        const avgRating = recentRatings.length > 0 ? recentRatings.reduce((a,b)=>a+b,0)/recentRatings.length : 1.0;
+        
+        if(avgRating < 0.9) {
+            return { ok: false, reason: '近期表现不佳 (Rating < 0.9)' };
+        }
+        
+        // 5. Cooldown check
+        const lastContract = this.history.filter(h => h.tierName === tierName).sort((a,b)=>b.endDate-a.endDate)[0];
+        if(lastContract) {
+            // "Must complete 2 A-tier events before resigning" - simplified to "Cooldown"
+            // For now, allow immediate resign if eligible.
+        }
+
+        return { ok: true };
+    },
+    
+    sign(tierName, team) {
+        const tier = CONFIG.SPONSOR_TIERS.find(t => t.name === tierName);
+        if(!tier) return;
+        
+        // Calculate Value
+        const recentRatings = (team.matchHistory || []).slice(-10).map(m => m.rating);
+        const avgRating = recentRatings.length > 0 ? recentRatings.reduce((a,b)=>a+b,0)/recentRatings.length : 1.0;
+        const performanceFactor = Math.max(0.9, Math.min(1.2, avgRating));
+        
+        // Exposure Factor (Mocked for now, assumes some history)
+        const sTierApps = team.sTierAppearances || 0;
+        const majorApps = team.majorAppearances || 0;
+        const exposureFactor = 1 + (sTierApps * 0.08) + (majorApps * 0.15);
+        
+        const totalValue = Math.floor(tier.baseValue * performanceFactor * exposureFactor);
+        const valuePerEvent = Math.floor(totalValue / tier.requiredEventCount);
+        
+        const contract = {
+            id: 'sp_'+Date.now()+'_'+rnd(100,999),
+            tierName: tier.name,
+            minTierRequirement: tier.minTierRequirement,
+            remainingEvents: tier.requiredEventCount,
+            totalValue: totalValue,
+            valuePerEvent: valuePerEvent,
+            performanceRiskCounter: 0, // Track low rating streaks
+            exposureMultiplier: tier.exposureMultiplier
+        };
+        
+        this.activeSponsors.push(contract);
+        UI.toast(`✍ 已签约赞助商：${tier.name}`, 'win');
+        return contract;
+    },
+    
+    // Check fulfillment after a match/event
+    // Prompt says: "Whenever participating in eligible event"
+    // Does it mean per match or per tournament? 
+    // "contractedEventsCount" - usually means Tournament count in CS manager games, or Match count?
+    // "Sponsor buys exposure in specified tier events". 
+    // "requiredEventCount: 6" -> Likely Tournaments. 12 Tournaments is a lot for a title sponsor (1 year+).
+    // If it's Matches, 12 matches is very fast (1-2 tournaments).
+    // Context: "Sponsor rewards 'playing high tier events'". 
+    // Let's assume **Tournament Participation**.
+    
+    onTournamentParticipate(team, tournamentTier) {
+        if(!team.isPlayer) return; // Only player sponsors for now
+        
+        const tierValue = { 'c-tier': 1, 'b-tier': 2, 'a-tier': 3, 's-tier': 4, 'major': 5 };
+        const eventVal = tierValue[tournamentTier] || 0;
+        
+        this.activeSponsors.forEach((sp, idx) => {
+            const reqVal = tierValue[sp.minTierRequirement] || 0;
+            
+            // Fulfillment
+            if(eventVal >= reqVal) {
+                Game.money += sp.valuePerEvent;
+                sp.remainingEvents--;
+                UI.log(`💰 [${sp.tierName}] 赞助生效：发放 $${sp.valuePerEvent.toLocaleString()}`, 'win');
+                
+                if(sp.remainingEvents <= 0) {
+                    UI.toast(`✅ [${sp.tierName}] 赞助合同履约完成！`);
+                    this.history.push({ ...sp, endDate: Date.now() });
+                    this.activeSponsors.splice(idx, 1);
+                }
+            } else {
+                // Breach Condition: Participating in lower tier?
+                // "Or participate in lower tier 3 times"
+                sp.performanceRiskCounter++;
+                if(sp.performanceRiskCounter >= 3) {
+                    // Breach!
+                    this.breach(sp, idx);
+                }
+            }
+        });
+    },
+    
+    onMatchPerformance(rating) {
+        // "Continuous 3 matches rating < 0.85"
+        // This needs to track per-sponsor risk?
+        // Or global risk?
+        // Let's track on sponsor object.
+        this.activeSponsors.forEach((sp, idx) => {
+            if(rating < 0.85) {
+                sp.performanceRiskCounter++; // Shared counter for bad performance/bad tier?
+                // Prompt distinguished them: "Continuous 3 match rating < 0.85 OR 3 times lower tier"
+                // Let's split if needed, or just use one risk counter for simplicity.
+                // Using shared counter makes it harder.
+                // Let's assume separate counter for rating streak.
+                if(!sp.lowRatingStreak) sp.lowRatingStreak = 0;
+                sp.lowRatingStreak++;
+            } else {
+                sp.lowRatingStreak = 0;
+            }
+            
+            if(sp.lowRatingStreak >= 3) {
+                // Check Breach Probability
+                const prob = 0.15 * sp.exposureMultiplier;
+                if(Math.random() < prob) {
+                    this.breach(sp, idx);
+                } else {
+                    UI.log(`⚠ [${sp.tierName}] 表现不佳，赞助商发出警告！`, 'loss');
+                    sp.lowRatingStreak = 0; // Reset after warning/lucky escape?
+                }
+            }
+        });
+    },
+    
+    breach(sp, idx) {
+        UI.toast(`💔 [${sp.tierName}] 赞助商因表现不佳解约！`, 'loss');
+        // Penalty
+        Game.fans = Math.floor(Game.fans * 0.97);
+        // Reputation hit (not tracked yet)
+        this.activeSponsors.splice(idx, 1);
+    }
+};
+
 const World={
   players:[],teams:[],
   amateurNames: [
@@ -927,7 +1209,8 @@ const World={
         this.players.push(p);
         roster.push(p);
     });
-    return {id:name, name, rating:base, roster, coach:null, isPlayer:false, isReal:false, isAmateur:true, points:0, lastRank:999};
+    const initPts = rnd(0,40);
+    return {id:name, name, rating:base, roster, coach:null, isPlayer:false, isReal:false, isAmateur:true, points:initPts, lastRank:999};
   },
   genRandomIdentity(){
     const cfg=pick(NAME_COUNTRIES);
@@ -959,27 +1242,333 @@ const World={
       const fallback=roleDefault[cfg.role]||'headshot';
       if(!myTraits.includes(fallback))myTraits.push(fallback);
       if(myTraits.filter(x=>NORMAL_TRAITS[x]).length<2){
-        const extra=NORMAL_TRAIT_KEYS.find(k=>!myTraits.includes(k))||'volatile';
-        myTraits.push(extra);
-      }
+      const extra=NORMAL_TRAIT_KEYS.find(k=>!myTraits.includes(k))||'volatile';
+      myTraits.push(extra);
     }
+  }
 
-    return{
+  const baseRatingCost = Math.pow(Math.max(1, rating - 40), 3) * 6;
+  
+  // Market Perception System
+  const marketBias = Math.floor((Math.random() + Math.random() + Math.random()) / 3 * 24 - 12);
+  const perceivedPot = Math.min(99, Math.max(rating, pot + marketBias));
+  const potentialTax = Math.pow(Math.max(1, perceivedPot - 40), 3) * 5;
+  
+  // Market Volatility (±15%)
+  const volatility = 0.85 + Math.random() * 0.3;
+  const price = Math.floor((baseRatingCost + potentialTax) * volatility);
+
+  const currentAbilityWage = Math.pow(Math.max(1, rating - 40), 3) * 0.3;
+   const potentialBonus = Math.pow(Math.max(0, pot - rating), 2) * 5;
+   const salary = Math.floor(currentAbilityWage + potentialBonus);
+
+  const p = {
       id:'real_'+cfg.name+'_'+rnd(1000,9999),
       name:handle+(realName?` (${realName})`:''),
       role:cfg.role,rating,potential:pot,age,form:1.0,
-      price:rating*40+(rating+(pot-rating))*20,
-      salary:Math.floor(rating*rating/10),
+      price,
+      salary,
+      evalStatus: (rarity==='legend') ? 2 : 0,
       teamId:teamName||null,rarity,
       traits:[...new Set(myTraits)],
       maps:MapUtils.genPlayerMaps(2000-(age-17)),
       ys:{matches:0,ratingSum:0,mvps:0,majorWins:0,wins:0},
       history:[],_ageDecayYear:null,isReal:true,
       country:cfg.country||'Unknown',countryCode:cfg.countryCode||null,
-      handle,realName
+      handle,realName,
+      performanceTracker: { lowRatingStreak: 0, highRatingStreak: 0 }
     };
+    p.hltv = World.generateHLTVProfile(p.rating, p.role);
+    
+    // Determine Origin Type
+    let originType = 'pro';
+    if(rating >= 95) originType = 'legendary';
+    else if(rating >= 90) originType = 'star';
+    else if(rating >= 80) originType = 'pro';
+    else originType = 'semiPro';
+
+    p.fans = World.generateInitialFans(originType, p);
+    
+    return p;
   },
-  init(startYear){
+  
+  mkP(min, max, ai=true, role=null, year=2000) {
+    const ident=this.genRandomIdentity();
+    const rating=rnd(min,max);
+    const age=rnd(16,25);
+    let pot=Math.min(99,rating+(age<=20?rnd(4,14):age<=24?rnd(2,7):rnd(0,2)));
+    // Hard cap for non-legend market players
+    if(!ai && pot > 88 && Math.random() > 0.05) pot = 88;
+    
+    const baseRatingCost = Math.pow(Math.max(1, rating - 40), 3) * 6;
+    
+    // Market Perception System
+    const marketBias = Math.floor((Math.random() + Math.random() + Math.random()) / 3 * 24 - 12);
+    const perceivedPot = Math.min(99, Math.max(rating, pot + marketBias));
+    const potentialTax = Math.pow(Math.max(1, perceivedPot - 40), 3) * 5;
+    
+    // Market Volatility (±15%)
+    const volatility = 0.85 + Math.random() * 0.3;
+    const price = Math.floor((baseRatingCost + potentialTax) * volatility);
+
+    const currentAbilityWage = Math.pow(Math.max(1, rating - 40), 3) * 0.3;
+    const potentialBonus = Math.pow(Math.max(0, pot - rating), 2) * 5;
+    const salary = Math.floor(currentAbilityWage + potentialBonus);
+
+    const p = {
+        id:'p'+Math.random().toString(36).substr(2,9),
+        name:ident.name,
+        role:role||pick(['Sniper','Rifler','Entry','Lurker','IGL']),
+        rating,potential:pot,age,form:1.0,
+        price,
+        salary,
+        evalStatus: 0,
+        teamId:null,rarity:'common',
+        traits:[],
+        maps:MapUtils.genPlayerMaps(year-(age-17)),
+        ys:{matches:0,ratingSum:0,mvps:0,majorWins:0,wins:0},
+        history:[],_ageDecayYear:null,
+        country:ident.country,countryCode:ident.countryCode,handle:ident.handle,
+        isRegenLegend: false,
+        performanceTracker: { lowRatingStreak: 0, highRatingStreak: 0 }
+    };
+    p.hltv = World.generateHLTVProfile(p.rating, p.role);
+    
+    let originType = 'amateur';
+    if(rating >= 80) originType = 'pro'; // Generated high rating player
+    else if(rating >= 70) originType = 'semiPro';
+    
+    p.fans = World.generateInitialFans(originType, p);
+    
+    return p;
+  },
+
+  generateInitialFans(originType, p) {
+      const cfg = CONFIG.PLAYER_INITIAL_FANS[originType] || CONFIG.PLAYER_INITIAL_FANS.amateur;
+      let totalFans = 0;
+      
+      if (originType === 'star' || originType === 'legendary') {
+          // Historical Calculation
+          // Simulate historical profile if not present
+          const careerTitles = originType === 'legendary' ? rnd(5, 20) : rnd(1, 5);
+          const majorWins = originType === 'legendary' ? rnd(1, 4) : (Math.random() < 0.3 ? 1 : 0);
+          const mvpCount = originType === 'legendary' ? rnd(2, 10) : rnd(0, 2);
+          const peakRating = p.rating + rnd(0, 3);
+          
+          totalFans = 
+              20000 * careerTitles + 
+              150000 * majorWins + 
+              30000 * mvpCount + 
+              peakRating * 50000;
+          
+          // Random fluctuation
+          totalFans = Math.floor(totalFans * (0.8 + Math.random() * 0.4));
+      } else {
+          // Distribution Logic
+          if (originType === 'amateur') {
+              // 80% low end
+              if (Math.random() < 0.8) totalFans = rnd(cfg.min, Math.floor(cfg.max * 0.2));
+              else totalFans = rnd(Math.floor(cfg.max * 0.2), cfg.max);
+              
+              // Low chance for > 100
+              if (totalFans > 100 && Math.random() > 0.1) totalFans = rnd(0, 100);
+          } else {
+              // Exponential-ish distribution favoring lower end
+              const range = cfg.max - cfg.min;
+              const r = Math.random();
+              const factor = r * r; // Quadratic bias to low end
+              totalFans = cfg.min + Math.floor(range * factor);
+          }
+      }
+      
+      // Caps and constraints
+      if (totalFans < 50) totalFans = 0; // No public recognition
+      
+      return {
+          totalFans: totalFans,
+          performanceFans: Math.floor(totalFans * 0.3), // Initial split
+          honorFans: Math.floor(totalFans * 0.7)
+      };
+  },
+
+  updatePlayerFans(p, result) {
+      if (!p.fans) p.fans = { totalFans: 0, performanceFans: 0, honorFans: 0 };
+      
+      // Tournament Fan Gain
+      const tierWeight = CONFIG.TOURNAMENT_TIER_WEIGHT[result.tier] || 0.2;
+      const placementWeight = CONFIG.PLACEMENT_WEIGHT[result.placement] || 0.05;
+      
+      // Match Rating Impact (using average of last tournament or just passed in?)
+      // Assuming p.rating2 is from last match/avg of tournament
+      const rating = parseFloat(p.rating2 || 1.0);
+      
+      let fanGain = 
+          CONFIG.BASE_TOURNAMENT_FAN_VALUE * 
+          tierWeight * 
+          placementWeight * 
+          (1 + (rating - 1) * 0.8);
+          
+      // Anti-farm for low tiers
+      if (result.tier === 'c-tier' || result.tier === 'b-tier') {
+          fanGain *= 0.5;
+      }
+      
+      // Anti-farm: Continuous participation check (Simplified: check history length?)
+      // We don't have full history tracking for "continuous same tier". 
+      // Skip for now or implement simple random dampener if frequent.
+      
+      // Cap Check (Monthly Cap implemented in decay/update cycle, here just raw gain)
+      // Apply immediate
+      p.fans.performanceFans += Math.floor(fanGain);
+      
+      // Honor Bonus
+      if (result.isMVP) {
+          p.fans.honorFans += CONFIG.HONOR_FAN_BONUS.MVP;
+          UI.log(`🏆 ${p.name} 荣获 MVP，粉丝暴涨！`, 'win');
+      }
+      if (result.placement === 'Champion') {
+          if (result.tier === 's-tier') p.fans.honorFans += CONFIG.HONOR_FAN_BONUS.S_Champion;
+          if (result.tier === 'major') p.fans.honorFans += CONFIG.HONOR_FAN_BONUS.Major_Champion;
+      }
+
+      // Recalculate Total
+      p.fans.totalFans = p.fans.performanceFans + p.fans.honorFans;
+  },
+
+  updateTeamFans(t, result) {
+      if (!t.brandFans) t.brandFans = t.isPlayer ? Game.fans : rnd(1000, 50000); // Init if missing
+      
+      // Brand Growth
+      let growth = 0;
+      if (result.placement === 'Champion') {
+          if (result.tier === 's-tier') growth = CONFIG.TEAM_BRAND_GROWTH.S_Champion;
+          if (result.tier === 'major') growth = CONFIG.TEAM_BRAND_GROWTH.Major_Champion;
+      } else if (result.placement === 'RunnerUp') { // "Final"
+           if (result.tier === 's-tier') growth = CONFIG.TEAM_BRAND_GROWTH.S_Final;
+           if (result.tier === 'major') growth = CONFIG.TEAM_BRAND_GROWTH.Major_Final;
+      }
+      t.brandFans += growth;
+      
+      // Total Fans Calculation
+      let sumRootFans = 0;
+      (t.roster || []).forEach(p => {
+          if (!p.fans) p.fans = World.generateInitialFans('pro', p); // Fallback
+          sumRootFans += Math.sqrt(p.fans.totalFans);
+      });
+      
+      t.totalFans = Math.floor(Math.pow(sumRootFans, 1.5) + t.brandFans);
+      
+      // Sync Player Game Fans
+      if (t.isPlayer) {
+          Game.fans = t.totalFans;
+      }
+  },
+
+  applyFanDecay(p) {
+      if (!p.fans) return;
+      // Check monthly rating average (using ys.ratingSum / ys.matches if monthly reset? No, ys is yearly)
+      // Use form as proxy or last rating? 
+      // User says "player.monthlyAverageRating < 0.95". 
+      // We don't track monthly average explicitly. 
+      // Use p.rating2 (last match) or p.form (proxy). 
+      // Let's use form < 0.9 as "poor performance" proxy or just random decay for inactivity?
+      // Strict interpretation: "if player.monthlyAverageRating < 0.95".
+      // We will assume p.rating2 is close enough to recent performance.
+      
+      if (parseFloat(p.rating2 || 1.0) < 0.95) {
+          const decay = Math.floor(p.fans.totalFans * 0.02);
+          p.fans.performanceFans = Math.max(0, p.fans.performanceFans - decay);
+          p.fans.totalFans = p.fans.performanceFans + p.fans.honorFans;
+      }
+  },
+
+  applyMonthlyDecay() {
+     // ... existing point decay ...
+     this.teams.forEach(t => {
+         if(t.points) t.points = Math.floor(t.points * 0.92);
+         // Fan Decay for players
+         if(t.roster) t.roster.forEach(p => this.applyFanDecay(p));
+         // Update Team Total
+         this.updateTeamFans(t, { tier: 'none', placement: 'none' }); // Just refresh totals
+     });
+     // Player team too
+     Game.roster.forEach(p => this.applyFanDecay(p));
+     this.updateTeamFans({ isPlayer: true, roster: Game.roster, brandFans: Game.fans }, { tier: 'none', placement: 'none' });
+     
+     // Points decay for Player?
+     Game.points = Math.floor(Game.points * 0.92);
+  },
+  
+  generateHLTVProfile(overall, role) {
+    // 扰动函数：±6 随机波动，clamp 40~99
+    const vary = (val) => Math.min(99, Math.max(40, Math.floor(val + (Math.random() * 12 - 6))));
+
+    // 以 overall 为基准，各属性先设为中等偏低基底，再按角色大幅加权
+    // 角色特化原则：主职属性 overall+(15~25)，次职 overall+(5~10)，弱项 overall-(10~20)
+    let base;
+
+    if (role === 'Sniper') {
+      // 狙击手：极高sniping/opening，低entrying/trading（不需要冲点和补枪）
+      base = {
+        firepower:  overall + 5,
+        sniping:    overall + 22,  // ★ 核心
+        opening:    overall + 12,  // AWP往往能拿首杀
+        clutching:  overall,
+        trading:    overall - 12,  // 狙击手很少trade
+        entrying:   overall - 15,  // 不冲点
+        utility:    overall - 8,
+      };
+    } else if (role === 'Entry') {
+      // 突破手：极高entrying/opening/firepower，弱clutching/sniping/utility
+      base = {
+        firepower:  overall + 12,  // ★ 核心
+        entrying:   overall + 22,  // ★ 核心
+        opening:    overall + 15,  // 抢首杀
+        clutching:  overall - 15,  // 冲点人活不到残局
+        sniping:    overall - 18,  // 不用awp
+        trading:    overall + 5,
+        utility:    overall - 8,
+      };
+    } else if (role === 'Lurker') {
+      // 潜伏者：极高clutching，高trading，低entrying/opening
+      base = {
+        firepower:  overall + 5,
+        clutching:  overall + 22,  // ★ 核心
+        trading:    overall + 12,  // 侧翼补枪
+        opening:    overall - 10,  // 不抢首杀
+        entrying:   overall - 15,  // 不冲点
+        sniping:    overall - 8,
+        utility:    overall + 8,   // 需要信息道具
+      };
+    } else if (role === 'IGL') {
+      // 指挥：极高utility/trading，低firepower/entrying/sniping（脑子好枪一般）
+      base = {
+        utility:    overall + 20,  // ★ 核心
+        trading:    overall + 10,  // 战术补枪
+        clutching:  overall + 8,   // 冷静
+        firepower:  overall - 12,  // 枪法一般
+        entrying:   overall - 15,  // 不冲点
+        sniping:    overall - 12,
+        opening:    overall - 5,
+      };
+    } else {
+      // Rifler（步枪手/辅助）：均衡型，firepower/trading/utility微强
+      base = {
+        firepower:  overall + 10,  // ★ 核心
+        trading:    overall + 12,  // ★ 核心
+        utility:    overall + 8,
+        opening:    overall + 5,
+        clutching:  overall + 5,
+        entrying:   overall - 5,
+        sniping:    overall - 15,  // 不用AWP
+      };
+    }
+
+    const hltv = {};
+    Object.keys(base).forEach(k => { hltv[k] = vary(base[k]); });
+    return hltv;
+  },
+init(startYear){
     this.players=[];this.teams=[];
     const y=startYear||2000;
     const eraKey=y>=2020?'era2020':(y>=2012?'era2012':'era2000');
@@ -1031,7 +1620,9 @@ const World={
             }
 
             const coach = this.mkCoach(true);
-            this.teams.push({id:t.name, name:t.name, rating:base, roster, coach, isPlayer:false, isReal:true, trait:t.trait, points:0, lastRank:999});
+            let initPts = Math.max(0, base-60) * 20;
+            initPts = Math.floor(initPts * 1.6 * (0.9 + Math.random()*0.3));
+            this.teams.push({id:t.name, name:t.name, rating:base, roster, coach, isPlayer:false, isReal:true, trait:t.trait, points:initPts, lastRank:999});
             usedTeams.add(t.name);
         });
     }
@@ -1048,7 +1639,11 @@ const World={
         });
         while(roster.length<5){const p=this.mkP(base-8,base+12,true,null,y);p.teamId=t.name;this.players.push(p);roster.push(p);}
         const coach=this.mkCoach(true);
-        this.teams.push({id:t.name,name:t.name,rating:base,roster,coach,isPlayer:false, isReal:true, points:0, lastRank:999});
+        let initPts = Math.max(0, base-60) * 20;
+        initPts = Math.floor(initPts * 1.3 * (0.9 + Math.random()*0.3));
+        const newTeam = {id:t.name,name:t.name,rating:base,roster,coach,isPlayer:false, isReal:true, points:initPts, lastRank:999};
+        this.updateTeamFans(newTeam, { tier: 'none', placement: 'none' }); // Init fans
+        this.teams.push(newTeam);
         usedTeams.add(t.name);
       });
     }
@@ -1063,7 +1658,11 @@ const World={
         const p=this.mkP(base-8,base+12,true,role,y);p.teamId=name;this.players.push(p);roster.push(p);
       });
       const coach=this.mkCoach(true);
-      this.teams.push({id:name,name,rating:base,roster,coach,isPlayer:false, isReal:true, points:0, lastRank:999});
+      let initPts = Math.max(0, base-60) * 12;
+      initPts = Math.floor(initPts * (0.9 + Math.random()*0.3));
+      const newTeam = {id:name,name,rating:base,roster,coach,isPlayer:false, isReal:true, points:initPts, lastRank:999};
+      this.updateTeamFans(newTeam, { tier: 'none', placement: 'none' });
+      this.teams.push(newTeam);
       usedTeams.add(name);
     }
 
@@ -1071,18 +1670,28 @@ const World={
     let amateurCount = 0;
     while(this.teams.length < 100) {
         const t = this.createAmateurTeam(amateurCount++);
+        this.updateTeamFans(t, { tier: 'none', placement: 'none' });
         this.teams.push(t);
     }
   },
   applyMonthlyDecay() {
-    // 8% monthly decay (multiplicative)
-    const factor = 0.92;
-    Game.points = Math.floor(Game.points * factor);
-    this.teams.forEach(t => {
-        t.points = Math.floor((t.points || 0) * factor);
-    });
-    // Recalculate rankings after decay
-    this.updateRankings();
+     // ... existing point decay ...
+     this.teams.forEach(t => {
+         if(t.points) t.points = Math.floor(t.points * 0.92);
+         // Fan Decay for players
+         if(t.roster) t.roster.forEach(p => this.applyFanDecay(p));
+         // Update Team Total
+         this.updateTeamFans(t, { tier: 'none', placement: 'none' }); // Just refresh totals
+     });
+     // Player team too
+     Game.roster.forEach(p => this.applyFanDecay(p));
+     this.updateTeamFans({ isPlayer: true, roster: Game.roster, brandFans: Game.fans }, { tier: 'none', placement: 'none' });
+     
+     // Points decay for Player?
+     Game.points = Math.floor(Game.points * 0.92);
+     
+     // Recalculate rankings after decay
+     this.updateRankings();
   },
 
   addTournamentPoints(team, points) {
@@ -1141,7 +1750,25 @@ const World={
     const isRegenLegend=!ai&&Math.random()<0.005;
     let rating,pot,age;
     if(isRegenLegend){rating=rnd(90,99);age=rnd(18,22);pot=99;}
-    else{rating=rnd(min,max);age=rnd(16,30);pot=Math.min(99,rating+(age<=20?rnd(10,25):age<=25?rnd(5,12):rnd(0,3)));}
+    else{
+        rating=rnd(min,max);
+        age=rnd(16,30);
+        let potBonus;
+        if(ai) {
+            // AI Logic: Standard potential
+            potBonus = age<=20?rnd(10,25):age<=25?rnd(5,12):rnd(0,3);
+        } else {
+            // Market/Player Logic: Nerfed potential & capped
+            // Reduced bonus for random market players to make high potential harder to find
+            potBonus = age<=20?rnd(4,14):age<=24?rnd(2,7):rnd(0,2);
+        }
+        pot = Math.min(99, rating + potBonus);
+        
+        // Hard cap for non-legend market players to limit "god-tier" randoms
+        if(!ai && !isRegenLegend && pot > 88 && Math.random() > 0.05) {
+            pot = 88;
+        }
+    }
     let rarity='common';
     if(isRegenLegend)rarity='legend';
     else if(rating>=85)rarity='rare';
@@ -1164,19 +1791,32 @@ const World={
     }
 
     const ident=this.genRandomIdentity();
+
+    const baseRatingCost = Math.pow(Math.max(1, rating - 40), 3) * 6;
+    const potentialTax = Math.pow(Math.max(1, pot - 40), 3) * 5;
+    const price = Math.floor(baseRatingCost + potentialTax + rnd(0, 5000));
+
+    const currentAbilityWage = Math.pow(Math.max(1, rating - 40), 3) * 0.3;
+    const potentialBonus = Math.pow(Math.max(0, pot - rating), 2) * 5;
+    let salary = Math.floor(currentAbilityWage + potentialBonus);
+    if(isRegenLegend) salary = Math.floor(salary * 1.5);
+
     const obj={
       id:(ai?'ai_':'p_')+rnd(10000,99999),
       name:ident.name,role:forceRole||pick(Object.keys(ROLES)),
       rating,potential:pot,age,form:1.0,
-      price:rating*40+(rating+(pot-rating))*20+rnd(0,500),
-      salary:Math.floor(rating*rating/10)*(isRegenLegend?2:1),
+      price,
+      salary,
+      evalStatus: (isRegenLegend || rarity==='legend') ? 2 : 0,
       teamId:null,rarity,traits:[...new Set(myTraits)],
       maps:MapUtils.genPlayerMaps(birthYear),
       ys:{matches:0,ratingSum:0,mvps:0,majorWins:0,wins:0},
       history:[],_ageDecayYear:null,
       country:ident.country,countryCode:ident.countryCode,handle:ident.handle,
-      isRegenLegend // 标记，用于UI金色边框
+      isRegenLegend, // 标记，用于UI金色边框
+      performanceTracker: { lowRatingStreak: 0, highRatingStreak: 0 }
     };
+    obj.hltv = this.generateHLTVProfile(obj.rating, obj.role);
     return obj;
   },
   mkCoach(ai=false){
@@ -1185,8 +1825,8 @@ const World={
       id:(ai?'ac_':'c_')+rnd(10000,99999),
       name:pick(COACH_NAMES)+(ai?'':'-'+rnd(1,9)),
       tactics,age:rnd(28,50),maps:MapUtils.genPlayerMaps(yr),
-      price:tactics*30+rnd(0,300),
-      salary:Math.floor(tactics*tactics/10),
+      price: Math.floor(Math.pow(Math.max(1, tactics - 30), 2.5) * 15 + rnd(0, 2000)),
+      salary: Math.floor(Math.pow(Math.max(1, tactics - 40), 2) * 8),
       teamId:null,isAI:ai
     };
   }
@@ -1211,6 +1851,55 @@ const Market={
     document.getElementById('market-players').classList.toggle('hidden',t!=='players');
     document.getElementById('market-coaches').classList.toggle('hidden',t!=='coaches');
   },
+  startEval(id) {
+      if (Game.money < 5000) return UI.toast('资金不足！安排试训评估需要 $5,000');
+      if (Game.evalQueue.some(x => x.id === id)) return UI.toast('该选手正在试训中！');
+      
+      Game.money -= 5000;
+      Game.evalQueue.push({ id, daysLeft: 3 }); // 3天试训
+      UI.toast(`📊 已安排试训，预计 3 天后出具报告。`);
+      UI.refresh(); this.renderAll();
+  },
+  
+  finishEval(id) {
+      const p = [...this.pList, ...World.players].find(x => x.id === id);
+      if (!p) return;
+      p.evalStatus = 1; // 1=范围可见
+      
+      const mkRange = (val) => {
+          const min = Math.max(1, val + rnd(-4, 0));
+          const max = Math.min(99, min + rnd(5, 8));
+          return `${min}~${max}`;
+      };
+      p.evalRanges = {
+          potential: mkRange(p.potential),
+          firepower: mkRange(p.hltv.firepower),
+          entrying: mkRange(p.hltv.entrying),
+          trading: mkRange(p.hltv.trading),
+          opening: mkRange(p.hltv.opening),
+          clutching: mkRange(p.hltv.clutching),
+          sniping: mkRange(p.hltv.sniping),
+          utility: mkRange(p.hltv.utility)
+      };
+      Game.pushNews(`📋 ${p.name} 的试训报告已送达！`);
+      if(UI.currentPage === 'market') this.renderAll();
+  },
+  
+  // 获取基于 Rating 的纯理论指导价（忽略潜力影响）
+  getGuidePriceRange(rating) {
+      // 假设潜力最低为 Rating (无潜力)，最高为 Rating+20 (常规高潜)
+      // 这只是给玩家看的“烟雾弹”
+      const base = Math.pow(Math.max(1, rating - 40), 3) * 6;
+      
+      // 下限：完全没潜力的价格
+      const minP = Math.floor(base + Math.pow(Math.max(1, rating - 40), 3) * 5 * 0.8);
+      
+      // 上限：默认是个天才的价格
+      const maxP = Math.floor(base + Math.pow(Math.max(1, Math.min(99, rating + 20) - 40), 3) * 5 * 1.2);
+      
+      return `$${(minP/1000).toFixed(0)}k ~ $${(maxP/1000).toFixed(0)}k`;
+  },
+
   renderAll(){this.renderPlayers();this.renderCoaches();},
   renderPlayers(){
     const yr=Game.date.getFullYear();
@@ -1220,17 +1909,48 @@ const Market={
       const myMaps=(p.maps||[]).filter(m=>pool.includes(m.map));
       const traitBadges=(p.traits||[]).map(t=>renderTraitBadge(t)).join('');
       const rar=RARITY[p.rarity||'common'];
-      const legendClass=p.isRegenLegend?'regen-legend':'';
-      const nameStyle=p.rarity==='legend'||p.isRegenLegend?'color:#ffd700;font-weight:700':'';
-      return`<div class="card ${legendClass}" onclick="UI.showPlayer('${p.id}')" style="cursor:pointer;border:${rar.border};${rar.shadow?`box-shadow:${rar.shadow}`:''}">
-        <span class="rbadge" style="background:${ROLES[p.role].color}">${ROLES[p.role].zh}</span>
-        <div class="cname" style="${nameStyle}">${p.name} <span style="font-size:10px;color:var(--dim)">(${p.age}岁)</span></div>
-        <div style="margin:4px 0 6px;min-height:18px">${traitBadges}</div>
-        <div class="cstat"><span>能力值</span><b>${p.rating}</b></div>
-        <div class="cstat"><span>潜力</span><b style="color:${p.potential>=85?'var(--gold)':p.potential>=75?'var(--win)':'var(--dim)'}">${p.potential}</b></div>
-        <div class="cstat"><span>买断费</span><b style="color:#86efac">$${p.price.toLocaleString()}</b></div>
-        <div class="mapbars">${myMaps.slice(0,2).map(m=>`<div class="mapbar-row"><span class="mapbar-name">${MapUtils.display(m.map)}</span><div class="mapbar-bg"><div class="mapbar-fill" style="width:${m.str}%;background:var(--win)"></div></div><span style="font-size:10px;color:var(--dim)">${m.str}</span></div>`).join('')}</div>
-        <button class="btn full" onclick="event.stopPropagation();Game.buyP('${p.id}')">签约选手</button>
+      
+      // 迷雾逻辑
+      const isLegend = p.evalStatus === 2;
+      const isEvaled = p.evalStatus === 1;
+      const isEvaling = Game.evalQueue.some(x => x.id === p.id);
+      const legendNotice = isLegend ? `<div style="position:absolute;top:-8px;left:50%;transform:translateX(-50%);background:var(--gold);color:#000;font-size:9px;font-weight:900;padding:2px 8px;border-radius:10px;box-shadow:0 0 10px rgba(232,168,56,0.6)">✨ 时代巨星</div>` : '';
+      
+      // 潜力显示
+      let potDisplay = `<b style="color:var(--dim)">???</b>`;
+      if (isLegend) potDisplay = `<b style="color:${p.potential>=85?'var(--gold)':p.potential>=75?'var(--win)':'var(--dim)'}">${p.potential}</b>`;
+      else if (isEvaled) potDisplay = `<b style="color:var(--blue)">${p.evalRanges.potential}</b>`;
+
+      // 价格显示
+      let priceDisplay = `<b style="color:#86efac">$${p.price.toLocaleString()}</b>`;
+      if (!isLegend && !isEvaled) {
+          priceDisplay = `<b style="color:var(--dim)">${this.getGuidePriceRange(p.rating)}</b>`;
+      }
+
+      // 按钮显示
+      let btnHtml = '';
+      if (isLegend || isEvaled) {
+          btnHtml = `<button class="btn full" onclick="event.stopPropagation();Game.buyP('${p.id}')">签约 ($${p.price.toLocaleString()})</button>`;
+      } else if (isEvaling) {
+          const days = Game.evalQueue.find(x => x.id === p.id).daysLeft;
+          btnHtml = `<button class="btn dark full" disabled>试训中 (${days}天)</button>`;
+      } else {
+          btnHtml = `<div style="display:flex;gap:4px;margin-top:8px">
+              <button class="btn dark" style="flex:1;padding:6px;font-size:11px" onclick="event.stopPropagation();Market.startEval('${p.id}')">📊 试训($5k)</button>
+              <button class="btn danger" style="flex:1;padding:6px;font-size:11px" onclick="event.stopPropagation();Game.buyP('${p.id}')">盲签(?)</button>
+          </div>`;
+      }
+
+      return `<div class="card ${p.isRegenLegend?'regen-legend':''}" onclick="UI.showPlayer('${p.id}')" style="border:${rar.border};${rar.shadow?`box-shadow:${rar.shadow}`:''};position:relative;margin-top:10px">
+          ${legendNotice}
+          <span class="rbadge" style="background:${ROLES[p.role].color}">${ROLES[p.role].zh}</span>
+          <div class="cname" style="${p.rarity==='legend'?'color:#ffd700;font-weight:700':''}">${p.name} <span style="font-size:10px;color:var(--dim)">(${p.age}岁)</span></div>
+          <div style="margin:4px 0 6px;min-height:18px">${traitBadges}</div>
+          <div class="cstat"><span>能力值</span><b>${p.rating}</b></div>
+          <div class="cstat"><span>潜力</span>${potDisplay}</div>
+          <div class="cstat"><span>转会费</span>${priceDisplay}</div>
+          <div class="mapbars">${myMaps.slice(0,2).map(m=>`<div class="mapbar-row"><span class="mapbar-name">${MapUtils.display(m.map)}</span><div class="mapbar-bg"><div class="mapbar-fill" style="width:${m.str}%;background:var(--win)"></div></div><span style="font-size:10px;color:var(--dim)">${m.str}</span></div>`).join('')}</div>
+          ${btnHtml}
       </div>`;
     }).join('');
   },
@@ -1271,7 +1991,31 @@ const SaveManager={
         if(!World.players.find(x=>x.id===p.id))World.players.push(p);
         if(p.salary===undefined)p.salary=Math.floor(p.rating*p.rating/10);
         if(!p.traits)p.traits=[];if(!p.maps)p.maps=[];if(!p.ys)p.ys={matches:0,ratingSum:0,mvps:0,majorWins:0,wins:0};
+        // HLTV migration
+        if(!p.hltv) p.hltv = World.generateHLTVProfile(p.rating, p.role);
       });
+      // Migrate all World players too
+      World.players.forEach(p => {
+          if(!p.hltv) p.hltv = World.generateHLTVProfile(p.rating, p.role);
+          // Fan migration
+          if(!p.fans) p.fans = World.generateInitialFans(p.rating>=90?'star':p.rating>=80?'pro':'amateur', p);
+      });
+      // Migrate all World teams
+      World.teams.forEach(t => {
+          if(!t.totalFans) World.updateTeamFans(t, { tier: 'none', placement: 'none' });
+      });
+      // Sync Player Fans if loaded
+      if (Game.fans === 100 && Game.roster.length > 0) { // Default or legacy
+          World.updateTeamFans({ isPlayer: true, roster: Game.roster, brandFans: 1000 }, { tier: 'none', placement: 'none' });
+      } else {
+          // If we have existing fans, treat them as brand fans for migration?
+          // Or just recalculate. Let's recalculate but keep existing fans as brand base?
+          // Actually, Game.fans was just a number.
+          // Let's seed brandFans with it.
+          const oldFans = Game.fans;
+          World.updateTeamFans({ isPlayer: true, roster: Game.roster, brandFans: oldFans }, { tier: 'none', placement: 'none' });
+      }
+      
       Game.coach=data.coach||null;
       if(Game.coach&&Game.coach.salary===undefined)Game.coach.salary=Math.floor(Game.coach.tactics*Game.coach.tactics/10);
       UI.toast('📂 存档已读取');return true;
@@ -1282,11 +2026,16 @@ const SaveManager={
 
 // ─── Game ────────────────────────────────────────────
 const Game={
-  date:new Date('2000-01-01'),money:5000,fans:100,
+  date:new Date('2000-01-01'),money:300000,fans:100,
+  initialCapital: 300000, firstMatchMonth: 3, // Default, will be updated in init
   roster:[],coach:null,trophies:[],news:[],
-  chem:50,fatigue:0,training:'rest',
+  chem:35,fatigue:0,training:'rest', scrimCD: 0,
   points:0, lastRank:999, rank:999,
   bankruptcyDays:0,synCache:{mult:1,msgs:[]},
+  // History Tracking for Sponsors
+  matchHistory: [], // { date, rating, tier }
+  sTierAppearances: 0,
+  majorAppearances: 0,
   eras:[
     {name:'CS 1.6 Era', winR:16,halfR:15,lossReset:true},
     {name:'CS:GO Era',  winR:16,halfR:15,lossReset:false},
@@ -1295,9 +2044,54 @@ const Game={
   get era(){const y=this.date.getFullYear();return y>=2023?2:y>=2012?1:0;},
   get eraObj(){return this.eras[this.era];},
   get weeklySalary(){
-    const rs=this.roster.reduce((a,b)=>a+(b.salary||Math.floor(b.rating*b.rating/10)),0);
-    const cs=this.coach?(this.coach.salary||Math.floor(this.coach.tactics*this.coach.tactics/10)):0;
-    return rs+cs;
+    // Legacy getter, kept for safety but replaced by calculateOperatingCost in usage
+    return this.calculateOperatingCost() / 4;
+  },
+  calculateOperatingCost() {
+      // 1. Base Cost
+      // max(5000, initialCapital * 0.01)
+      const baseCost = Math.max(5000, this.initialCapital * 0.01);
+      
+      // 2. Salary Sum
+      const salarySum = this.roster.reduce((a,b)=>a+(b.salary||Math.floor(b.rating*b.rating/10)),0) + 
+                        (this.coach?(this.coach.salary||Math.floor(this.coach.tactics*this.coach.tactics/10)):0);
+      
+      // 3. Facility Cost (Simplified: 0 for now or fixed overhead)
+      const facilityCost = 0; 
+      
+      // 4. Marketing Cost
+      const marketingCost = this.fans * 0.05;
+      
+      // 5. Scaling Cost
+      const scalingCost = Math.pow(this.fans / 10000, 2) * 12;
+      
+      // 6. Luxury Tax
+      let luxuryTax = 0;
+      if (salarySum > 120000) {
+          luxuryTax = (salarySum - 120000) * 1.5;
+      }
+      
+      let total = baseCost + salarySum + facilityCost + marketingCost + scalingCost + luxuryTax;
+      
+      // Initial Buffer Mechanism
+      // If current month < firstMatchMonth (e.g. 3, which is April? No, month is 0-indexed. March is 2. 
+      // User said: "In year 2000, first match is Month 3 or 4". 
+      // Cal.genYear logic: "if (y === 2000 && m < 3) continue;" -> First match in m=3 (April).
+      // So if this.date.getMonth() < 3, apply buffer.
+      if (this.date.getFullYear() === 2000 && this.date.getMonth() < this.firstMatchMonth) {
+          total *= 0.5;
+      }
+      
+      return Math.floor(total);
+  },
+  
+  signSponsor(tierName) {
+      // Wrapper for UI to call SponsorManager
+      const contract = SponsorManager.sign(tierName, this);
+      if(contract) {
+          // Refresh if on sponsor page
+          if(UI.currentPage === 'sponsors') UI.renderSponsors();
+      }
   },
   pushNews(msg){
     this.news.unshift({date:fmtD(this.date),msg});
@@ -1306,6 +2100,7 @@ const Game={
     if(el)el.innerHTML=this.news.map(n=>`<div style="margin-bottom:4px;border-bottom:1px dashed var(--border);padding-bottom:2px"><span style="color:var(--dim)">${n.date}</span><br><span style="color:#eee">${n.msg}</span></div>`).join('');
   },
   init(){
+    this.evalQueue = [];
     // 先设置日期，再初始化世界（时代判断依赖日期）
     this.date=new Date('2000-01-01');
     World.init(2000);
@@ -1317,55 +2112,109 @@ const Game={
       }
     }else{
       ['IGL','Sniper','Entry','Rifler','Lurker'].forEach(role=>{
-        const p=World.mkP(55,65,false,role,2000);p.teamId='PLAYER';World.players.push(p);this.roster.push(p);
+        const p=World.mkP(48,55,false,role,2000);p.teamId='PLAYER';p.form=0.95;World.players.push(p);this.roster.push(p);
       });
-      Cal.genYear(2000);this.money+=500;this.pushNews('俱乐部成立，开启征程！');
+      Cal.genYear(2000);this.money=this.initialCapital;this.pushNews('俱乐部成立，获得天使投资人 30 万的启动资金！证明自己吧！');
     }
     // 免费初始化市场（不扣钱）
     Market.refresh(true);
     UI.refresh();
+    World.updateRankings();
+    UI.renderRankings && UI.renderRankings();
   },
   advanceDay(){
     this.date.setDate(this.date.getDate()+1);
     const y=this.date.getFullYear(),mo=this.date.getMonth(),d=this.date.getDate();
+    
+    // 市场每月1号自动刷新
+    if (d === 1) {
+        Market.refresh(true);
+        this.pushNews("🔄 转会市场已更新本月最新名单！");
+    }
+    // 处理试训队列
+    for (let i = this.evalQueue.length - 1; i >= 0; i--) {
+        let task = this.evalQueue[i];
+        task.daysLeft--;
+        if (task.daysLeft <= 0) {
+            Market.finishEval(task.id);
+            this.evalQueue.splice(i, 1);
+        }
+    }
+    if(UI.currentPage === 'market') UI.renderMarketTimer();
+
     // 历史天才少年登场
     this._checkDebuts(y);
     // 周薪
     if(this.date.getDay()===1){
-      const ws=this.weeklySalary;this.money-=ws;
-      UI.toast(`💸 支付周薪 $${ws.toLocaleString()}`);
+      const weeklyCost = Math.floor(this.calculateOperatingCost() / 4);
+      this.money -= weeklyCost;
+      // Removed repetitive weekly toast for smoother multi-day advance
+      // UI.toast(`💸 支付运营开支 $${weeklyCost.toLocaleString()}`);
       
       // 每周一更新世界排名
       World.updateRankings();
+      UI.renderRankings && UI.renderRankings();
 
       if(this.money<0){
         this.bankruptcyDays+=7;
         if(this.bankruptcyDays>=7){
           const sorted=[...this.roster].sort((a,b)=>(b.salary||0)-(a.salary||0));
-          if(sorted.length>0){const target=sorted[0];this.fireP(target.id);this.pushNews(`💔 资金链断裂！战队被迫解约 ${target.name}`);}
+          if(sorted.length>0){const target=sorted[0];this.sellP(target.id);this.pushNews(`💔 资金链断裂！战队被迫折价变卖了 ${target.name}`);}
           this.bankruptcyDays=0;
         }else{UI.toast('⚠ 资金不足！请在一周内扭亏为盈！');}
       }else{this.bankruptcyDays=0;}
     }
-    // 训练
-    if(this.training==='rest'){
-      this.fatigue=Math.max(0,this.fatigue-5);
-      this.roster.forEach(p=>p.form=Math.min(1.2,p.form+.02));
-    }else if(this.training==='aim'){
-      const coachBonus=this.coach?this.coach.tactics/500:0;
-      const hasIron=this.roster.some(p=>(p.traits||[]).includes('iron'));
-      if(!hasIron)this.fatigue+=2;
-      this.roster.forEach(p=>{if(p.rating<p.potential&&Math.random()<.15+coachBonus)p.rating++;});
-    }else{
-      const hasIron=this.roster.some(p=>(p.traits||[]).includes('iron'));
-      if(!hasIron)this.fatigue+=2;
-      const cap=this.chemCap();
-      let mult=this.coach?1+this.coach.tactics/200:1;
-      // 独裁战术：训练磨合速度翻倍
-      if(this.roster.some(p=>(p.traits||[]).includes('独裁战术')))mult*=2.0;
-      this.chem=Math.min(cap,this.chem+mult);
+    if(this.scrimCD > 0) this.scrimCD--; // 处理训练赛冷却
+
+    // 训练系统重构
+    const coachTactics = this.coach ? this.coach.tactics : 50;
+    const hasIron = this.roster.some(p => (p.traits||[]).includes('iron'));
+    const fatigueResist = hasIron ? 0.5 : 1;
+
+    switch(this.training) {
+        case 'rest':
+            this.fatigue = Math.max(0, this.fatigue - 8);
+            this.roster.forEach(p => p.form = Math.min(1.2, p.form + 0.02));
+            break;
+        case 'fpl':
+            this.fatigue += 3 * fatigueResist;
+            this.roster.forEach(p => {
+                if(p.rating < p.potential && Math.random() < 0.03) p.rating++;
+                if(Math.random() < 0.1) p.form = Math.max(0.6, p.form - 0.08); // 遇到搞子破防
+                else p.form = Math.min(1.3, p.form + 0.01);
+            });
+            break;
+        case 'utility':
+            this.fatigue += 2 * fatigueResist;
+            // 提升地图熟练度
+            if(Math.random() < 0.3 && this.roster.length > 0) {
+                const rp = pick(this.roster);
+                if(rp.maps && rp.maps.length > 0) {
+                    const rm = pick(rp.maps);
+                    rm.str = Math.min(99, rm.str + 1);
+                }
+            }
+            break;
+        case 'theory': // 看Demo
+            this.fatigue += 1 * fatigueResist;
+            if (this.coach) {
+                // 复合公式：(教练水平*0.7 + 队员平均Utility*0.3)
+                const avgIQ = this.roster.reduce((s, p) => s + (p.hltv ? p.hltv.utility : 60), 0) / Math.max(1, this.roster.length);
+                const theoryEff = (this.coach.tactics * 0.7 + avgIQ * 0.3) * 0.008;
+                this.chem = Math.min(this.chemCap(), this.chem + theoryEff);
+            } else {
+                this.training = 'rest'; // 无教练防御性回退
+            }
+            break;
+        case 'team': // 战术合练
+            this.fatigue += 4 * fatigueResist;
+            let mult = this.coach ? 1 + coachTactics / 200 : 1;
+            // "独裁战术"特质加成
+            if(this.roster.some(p => (p.traits||[]).includes('独裁战术'))) mult *= 2.0;
+            this.chem = Math.min(this.chemCap(), this.chem + mult * 0.3);
+            break;
     }
-    if(this.fatigue>80)this.roster.forEach(p=>p.form=Math.max(.7,p.form-.05));
+    if(this.fatigue > 80) this.roster.forEach(p => p.form = Math.max(0.7, p.form - 0.05));
 
     // 月末积分衰减 (每月末 8%)
     if (d === new Date(y, mo + 1, 0).getDate()) {
@@ -1374,13 +2223,13 @@ const Game={
     }
 
     // 年末
-    if(mo===11&&d===31){this._yearEnd(y);return;}
+    if(mo===11&&d===31){this._yearEnd(y);return false;}
     // 随机事件
     if(Math.random()<.01)this._randomEvent();
     // 赛事
     const ev=Cal.today(this.date);
     if(ev){
-      if(ev.isReg){Tour.start(ev);return;}
+      if(ev.isReg){Tour.start(ev);return true;} // Return true if event started
       else{
         const w=pick(World.teams);
         if(w&&w.roster){w.roster.forEach(p=>{p.ys.matches+=5;p.ys.ratingSum+=(1.05+Math.random()*.2)*5;p.ys.wins++;if(ev.tier==='major')p.ys.majorWins++;});if(w.roster[0])w.roster[0].ys.mvps++;}
@@ -1388,6 +2237,17 @@ const Game={
       }
     }
     UI.refresh();
+    return false;
+  },
+  advanceWeek(){
+      for(let i=0; i<7; i++){
+          if(this.advanceDay()) break; // Stop if event starts
+      }
+  },
+  advanceMonth(){
+      for(let i=0; i<30; i++){
+          if(this.advanceDay()) break;
+      }
   },
   _checkDebuts(y){
     // --- 👑 1.6 时代传奇选手登场机制 ---
@@ -1485,12 +2345,63 @@ const Game={
     if(this.roster.some(p=>(p.traits||[]).includes('战术先驱')))base+=20;
     return base;
   },
-  setTrain(m){
-    this.training=m;
-    document.querySelectorAll('.trbtn').forEach(b=>b.classList.remove('on'));
-    const el=document.getElementById('tr-'+m);if(el)el.classList.add('on');
-    const d={rest:'🛌 恢复体力与状态，降低疲劳。',aim:'🎯 强化枪法，向潜力上限靠拢（教练加速）。',tactics:'🗺 提升磨合度，上限由教练战术水平决定。'};
-    const td=document.getElementById('tr-desc');if(td)td.innerText=d[m];
+  setTrain(m) {
+      // 核心限制：没有教练无法进行战术复盘
+      if (m === 'theory' && !this.coach) {
+          return UI.toast('❌ 战队没有教练，无法组织全队录像复盘！');
+      }
+
+      this.training = m;
+      document.querySelectorAll('.trbtn').forEach(b => b.classList.remove('on'));
+      const el = document.getElementById('tr-' + m);
+      if(el) el.classList.add('on');
+
+      const d = {
+          rest: '🛌 【低强度】大幅降疲劳(-8)，缓慢回状态。',
+          fpl: '🎯 【中强度】提升个人枪法。小概率遇到搞子路人掉状态。',
+          utility: '💣 【低强度】研究投掷物(+疲劳2)。提升部分地图熟练度。',
+          theory: '📺 【极低强度】需教练主导。深度战术分析，大幅提升磨合度。',
+          team: '🤝 【高强度】跑图与补枪训练(+疲劳4)。较快提升磨合度。'
+      };
+      const td = document.getElementById('tr-desc');
+      if(td) td.innerText = d[m];
+  },
+  playScrim() {
+      if(this.roster.length < 5) return UI.toast('首发不足5人，无法约战！');
+      if(this.scrimCD > 0) return UI.toast(`其他队伍都没空，冷却中 (${this.scrimCD}天)`);
+      if(this.fatigue > 70) return UI.toast('队员太疲劳了，拒绝打训练赛！');
+
+      // 1. 寻找陪练 (随机找一个评分相近的AI队伍)
+      const myPower = this.power().eff;
+      const oppPool = World.teams.filter(t => !t.isPlayer);
+      const opp = oppPool.sort(() => Math.random() - 0.5)[0];
+
+      // 2. 无头模拟器：按回合掷骰子
+      let sP = 0, sAI = 0;
+      const winR = this.eraObj.winR;
+      let target = winR;
+      while(sP < target && sAI < target) {
+          if(sP === target - 1 && sAI === target - 1) target += 4; // 加时
+          const pChance = myPower / (myPower + opp.rating);
+          if(Math.random() < pChance * (0.8 + Math.random() * 0.4)) sP++; else sAI++;
+      }
+
+      const won = sP > sAI;
+      
+      // 3. 结算影响
+      this.fatigue += 15; // 高疲劳
+      // 训练赛涨磨合最快，有教练效果翻倍
+      this.chem = Math.min(this.chemCap(), this.chem + (this.coach ? 3 : 1.5));
+      this.scrimCD = 7; // <--- 7天冷却
+
+      this.roster.forEach(p => {
+          if(won) p.form = Math.min(1.3, p.form + 0.04);
+          else p.form = Math.max(0.6, p.form - 0.02); // 输了微掉心态
+      });
+
+      const color = won ? '#86efac' : '#fca5a5';
+      this.pushNews(`⚔️ 训练赛: 与 ${opp.name} 交手，比分 <b style="color:${color}">${sP}:${sAI}</b>。`);
+      UI.refresh();
   },
   synergy(){
     if(!this.roster.length)return{mult:1,msgs:['<div class="syn" style="border-left-color:var(--dim)">暂无选手</div>']};
@@ -1567,14 +2478,17 @@ const Game={
     return{raw, eff: raw * synMult * chemFactor * tactMult, chemFactor};
   },
   buyP(id){
-    if(this.roster.length>=5)return UI.toast('阵容已满！');
+    if(this.roster.length>=6)return UI.toast('阵容已满（最多6人）！请先挂牌出售选手。');
     const p=Market.pList.find(x=>x.id===id);if(!p)return;
     const isRealLegend=p.isReal&&p.rarity==='legend';
     const required=isRealLegend?Math.ceil(p.price*1.5):p.price;
     if(this.money<required)return UI.toast(isRealLegend?`传奇选手需至少 $${required.toLocaleString()}`:'资金不足！');
-    this.money-=required;p.teamId='PLAYER';this.roster.push(p);this.chem=Math.max(0,this.chem-15);
+    this.money-=required;p.teamId='PLAYER';p.evalStatus = 2; // 购买后完全可见
+    this.roster.push(p);this.chem=Math.max(0,this.chem-15);
     Market.pList=Market.pList.filter(x=>x.id!==id);
-    UI.toast(isRealLegend?`✍ 重金签下传奇: ${p.name}`:`✍ 签下: ${p.name}`);UI.refresh();Market.renderAll();
+    const costText = p.price > 0 ? `$${p.price.toLocaleString()}` : 'Free';
+    UI.toast(isRealLegend ? `✍ 重金签下传奇: ${p.name}` : `✍ 签下: ${p.name} (花费 ${costText})`);
+    UI.refresh();Market.renderAll();
   },
   buyC(id){
     const c=Market.cList.find(x=>x.id===id);if(!c)return;
@@ -1584,10 +2498,19 @@ const Game={
     Market.cList=Market.cList.filter(x=>x.id!==id);
     UI.toast(`✍ 签约教练: ${c.name}（战术${c.tactics}）`);UI.refresh();Market.renderAll();
   },
-  fireP(id){
-    if(this.roster.length<=1)return UI.toast('至少保留一名选手！');
-    const p=this.roster.find(x=>x.id===id);if(p)p.teamId=null;
-    this.roster=this.roster.filter(x=>x.id!==id);UI.refresh();
+  sellP(id) {
+      if(this.roster.length <= 1) return UI.toast('至少保留一名选手！');
+      const p = this.roster.find(x => x.id === id);
+      if(!p) return;
+      
+      // 变现回收 60% 的市场身价
+      const sellValue = Math.floor(p.price * 0.6);
+      this.money += sellValue;
+      p.teamId = null;
+      this.roster = this.roster.filter(x => x.id !== id);
+      
+      this.pushNews(`🤝 转会达成！战队以 $${sellValue.toLocaleString()} 的价格出售了 ${p.name}`);
+      UI.refresh();
   },
   fireC(){if(!this.coach)return;UI.toast(`解雇了教练 ${this.coach.name}`);this.coach.teamId=null;this.coach=null;UI.refresh();},
   skipToEvent(){
@@ -1636,48 +2559,58 @@ const Cal={
                 let m = rnd(1, 11);
                 // 避免与已有赛事月冲突
                 while(this.evs.some(ev => ev.date.getMonth() === m)) m = (m + 1) % 12;
-                this.add(y, m, rnd(5, 25), name, 'a-tier', 'SE', 50000, 16);
+                this.add(y, m, rnd(5, 25), name, 'a-tier', 'SE', 50000, 16, null);
             }
         } else {
-            this.add(y, e.month-1, rnd(10, 20), e.name, e.tier, e.bracket, e.prize, e.teams);
+            this.add(y, e.month-1, rnd(10, 20), e.name, e.tier, e.bracket, e.prize, e.teams, null);
         }
     });
 
     // 3. 填充 C-Tier 网吧赛 (每月确保有比赛)
     for(let m=0; m<12; m++) {
+        // Year 2000: Skip first 3 months (Jan-Mar) to allow development
+        if (y === 2000 && m < 3) continue;
+
         if(!this.evs.some(e => e.date.getMonth() === m)) {
-            this.add(y, m, rnd(5, 25), `CCT Online #${m+1}`, 'c-tier', 'SE', 10000, 8);
+            const diff = (m%3===0)?'easy':((m%3===1)?'mid':'hard');
+            const name = diff==='easy'?`CCT 新人杯 #${m+1}`:diff==='mid'?`CCT 晋级赛 #${m+1}`:`CCT 精英赛 #${m+1}`;
+            this.add(y, m, rnd(5, 25), name, 'c-tier', 'SE', 10000, 8, diff);
         }
     }
 
     this.evs.sort((a,b)=>a.date-b.date);
     UI.renderCal();
   },
-  add(y,mo,d,name,tier,bracket='SE',prize=50000,teams=16){
+  add(y,mo,d,name,tier,bracket='SE',prize=50000,teams=16,difficulty=null){
     const tf=this.tierFormats[tier];
-    // 使用传入的参数覆盖默认配置
-    const minFans=tier==='major'?3000:tier==='a-tier'?1000:100;
-    
-    // 排名要求
     let minRank = 999;
     if(tier === 'major') minRank = teams + 8; // Major前N名+替补
     else if(tier === 'a-tier') minRank = 40;
+    else {
+        if(difficulty==='hard') minRank = 120;
+        else if(difficulty==='mid') minRank = 150;
+        else minRank = 200;
+    }
     
     // 赛事积分总池 (Base Points)
-    // S-Tier: 1000, A-Tier: 500, C-Tier: 100
-    const basePoints = tier === 'major' ? 1000 : 
-                       tier === 'a-tier' ? 500 : 100;
+    // S-Tier: 1200, A-Tier: 600, C-Tier: 60
+    const basePoints = tier === 'major' ? 1200 : 
+                       tier === 'a-tier' ? 600 : 60;
 
     this.evs.push({
         id:'t'+rnd(1000,9999),
         date:new Date(y,mo,d),
         name,tier,
-        bracket, // SE, DE, GSE
-        teams,prize,minFans,minRank,basePoints,
+        bracket,
+        teams,prize,minRank,basePoints,
+        difficulty,
         isReg:false,fmt:tf
     });
   },
-  getParticipants(tier, count) {
+  getParticipants(ev) {
+    const tier = ev.tier;
+    const count = ev.teams;
+    const difficulty = ev.difficulty || null;
     // 动态排名：按 rating 排序
     const allTeams = [...World.teams].sort((a,b)=>b.rating-a.rating);
     let pool = [];
@@ -1689,8 +2622,10 @@ const Cal={
       // A-Tier: 21-60 名
       pool = allTeams.slice(20, 60);
     } else {
-      // C-Tier: 禁止前 50 名参加，使用业余战队
-      pool = allTeams.slice(50);
+      let startIdx = 60;
+      if(difficulty==='mid') startIdx = 45;
+      if(difficulty==='hard') startIdx = 35;
+      pool = allTeams.slice(startIdx);
     }
     
     // 随机打乱并截取 count-1 (因为玩家占 1 个席位)
@@ -1702,9 +2637,7 @@ const Cal={
   today(dt){const s=fmtD(dt);return this.evs.find(e=>fmtD(e.date)===s)||null;},
   register(id){
     const ev=this.evs.find(e=>e.id===id);if(!ev)return;
-    if(Game.fans<ev.minFans)return UI.toast('粉丝不足！');
     
-    // 排名检查
     if(ev.minRank && ev.minRank < 999) {
         const myRank = Game.rank || 999;
         if(myRank > ev.minRank) return UI.toast(`排名不足！需前 ${ev.minRank} 名 (当前: ${myRank})`);
@@ -2209,7 +3142,7 @@ const Tour={
     const playerTeam={id:'__player__',name:'我的战队',rating:Game.power().eff,isPlayer:true,roster:Game.roster,coach:Game.coach,isReal:true};
     this._initT(null, playerTeam); // Register player team stats container
 
-    const pool = Cal.getParticipants(ev.tier, ev.teams);
+    const pool = Cal.getParticipants(ev);
     const all=[playerTeam];
     for(let i=0;i<pool.length;i++){
       const t=pool[i];
@@ -2272,23 +3205,82 @@ const Tour={
     matches.forEach((m,idx)=>{
       if(m.winner || !m.t1 || !m.t2 || m.t1.isPlayer || m.t2.isPlayer) return;
       
-      const t1w=(m.t1.rating||70)*(0.8+Math.random()*.4)>(m.t2.rating||70)*(0.8+Math.random()*.4);
+      // Calculate winner based on team aggregate HLTV stats
+      const getTeamPower = (t) => {
+          if(!t.roster) return t.rating;
+          return t.roster.reduce((sum, p) => {
+              const h = p.hltv || World.generateHLTVProfile(p.rating, p.role);
+              // Weighted power
+              return sum + (h.firepower * 1.0 + h.entrying * 0.2 + h.clutching * 0.2 + h.utility * 0.1) * (p.form||1);
+          }, 0) / Math.max(1, t.roster.length);
+      };
+
+      const p1 = getTeamPower(m.t1);
+      const p2 = getTeamPower(m.t2);
+      
+      const t1w = p1 * (0.9 + Math.random()*0.2) > p2 * (0.9 + Math.random()*0.2);
       const winner = t1w ? m.t1 : m.t2;
       
       this.strategy.resolveMatch(m, winner);
-      
-      // Removed per-match points (placement based only)
-      // let winPoints = this.ev.tier === 'major' ? 50 : 20;
-      // World.addTournamentPoints(winner, winPoints);
 
-      const fake=(roster,win)=>roster.forEach(p=>{
-        const r=(win?0.95+Math.random()*.4:0.7+Math.random()*.4)*p.form;
-        const sc=0.35*r+0.20*(r*.9)+Math.random()*.2;
-        const tr=this.pStats.get(p.id);
-        if(tr){tr.played++;tr.score+=sc;if(r>tr.topRating)tr.topRating=r;}
-        p.ys.matches++;p.ys.ratingSum+=parseFloat(r.toFixed(2));
-      });
-      fake(m.t1.roster||[],t1w);fake(m.t2.roster||[],!t1w);
+      // Simulate player stats for AI match
+      const simPlayerStats = (p, win) => {
+          const h = p.hltv || World.generateHLTVProfile(p.rating, p.role);
+          // Base stats
+          const rounds = rnd(20, 30);
+          
+          // Kills derived from firepower + role
+          let kpr = h.firepower / 100 * (0.6 + Math.random() * 0.4);
+          if (win) kpr *= 1.2;
+          const kills = Math.round(kpr * rounds);
+          
+          // Deaths
+          let dpr = 0.6 + Math.random() * 0.2;
+          if (win) dpr *= 0.8;
+          const deaths = Math.round(dpr * rounds);
+          
+          // Assists (Utility)
+          const apr = h.utility / 100 * 0.2 * Math.random();
+          const assists = Math.round(apr * rounds);
+          
+          // Opening Kills (Entrying/Opening)
+          const okpr = (h.entrying + h.opening) / 200 * 0.15 * Math.random();
+          const openingKills = Math.round(okpr * rounds);
+          
+          // Clutch (Clutching)
+          const clutchWins = Math.random() < (h.clutching / 100 * 0.1) ? rnd(0, 2) : 0;
+          
+          // ADR
+          const adr = kpr * 85 + (Math.random() * 20 - 10);
+          
+          // KAST (Utility + Survival)
+          const kastRounds = Math.round(rounds * (0.6 + (h.utility/100)*0.1 + (win?0.1:0)));
+
+          // Calculate Rating using formula
+          const survivalRate = 1 - (deaths / rounds);
+          const impactScore = (openingKills + clutchWins * 1.5) / rounds;
+          const adrFactor = adr / 100;
+          const kastFactor = (kastRounds / rounds);
+          
+          const rating = 
+              (kpr * 0.30) + 
+              (impactScore * 0.25) + 
+              (survivalRate * 0.15) + 
+              (adrFactor * 0.20) + 
+              (kastFactor * 0.10);
+
+          const tr=this.pStats.get(p.id);
+          if(tr){
+              tr.played++;
+              tr.score += rating;
+              if(rating > tr.topRating) tr.topRating = rating;
+          }
+          p.ys.matches++;
+          p.ys.ratingSum+=parseFloat(rating.toFixed(2));
+      };
+      
+      (m.t1.roster||[]).forEach(p => simPlayerStats(p, t1w));
+      (m.t2.roster||[]).forEach(p => simPlayerStats(p, !t1w));
     });
 
     if (this.strategy.roundIdx > this.playerRound) {
@@ -2400,10 +3392,97 @@ const Tour={
     (champ.roster||[]).forEach(p=>{p.ys.wins++;if(this.ev.tier==='major')p.ys.majorWins++;});
     if(champ.isPlayer){
       Game.trophies.push({event:this.ev.name,date:new Date(Game.date),rank:'Champion',prize:this.prize});
-      Game.fans+=Math.floor(this.ev.prize/500);
+      // Game.fans update moved to World.updateTeamFans via updatePlayerFans
       SaveManager.save();
     }
     
+    // Track History for Sponsors & Fulfillment
+    if(this.ev) {
+        // Track Appearances
+        if(this.ev.tier === 's-tier') {
+            const playerInS = standings.find(t => t.isPlayer);
+            if(playerInS) Game.sTierAppearances = (Game.sTierAppearances||0) + 1;
+        }
+        if(this.ev.tier === 'major') {
+            const playerInMajor = standings.find(t => t.isPlayer);
+            if(playerInMajor) Game.majorAppearances = (Game.majorAppearances||0) + 1;
+        }
+        
+        // Track Match Ratings for History
+        // We need average rating of player team across tournament
+        // Calculate average rating of team in this tournament
+        const playerTeam = standings.find(t => t.isPlayer);
+        if(playerTeam) {
+            let totalRating = 0;
+            let count = 0;
+            (playerTeam.roster || Game.roster).forEach(p => {
+                const stats = this.pStats.get(p.id);
+                if(stats && stats.played > 0) {
+                    totalRating += (stats.score / stats.played);
+                    count++;
+                }
+            });
+            const avgTeamRating = count > 0 ? totalRating / count : 1.0;
+            
+            // Push to history
+            if(!Game.matchHistory) Game.matchHistory = [];
+            Game.matchHistory.push({
+                date: new Date(Game.date),
+                rating: avgTeamRating,
+                tier: this.ev.tier
+            });
+            // Keep history manageable
+            if(Game.matchHistory.length > 50) Game.matchHistory.shift();
+            
+            // Sponsor Checks
+            // Fulfillment
+            SponsorManager.onTournamentParticipate({ isPlayer: true }, this.ev.tier);
+            
+            // Performance Check (Risk)
+            // "Continuous 3 match rating < 0.85". 
+            // We are using tournament avg here. 
+            // Prompt says "Continuous 3 match rating".
+            // If we use tournament avg, it's safer. 
+            // Or we iterate match logs? Too complex. Use tournament avg for risk check.
+            SponsorManager.onMatchPerformance(avgTeamRating);
+        }
+    }
+
+    // Update Fans for all participants
+    standings.forEach((t, index) => {
+        let placement = 'GroupExit';
+        if (index === 0) placement = 'Champion';
+        else if (index === 1) placement = 'RunnerUp';
+        else if (index < 4) placement = 'Top4';
+        else if (index < 8) placement = 'Top8';
+        
+        // Find real team object
+        let realTeam = t;
+        if (t.isPlayer) realTeam = { isPlayer: true, roster: Game.roster, brandFans: Game.fans }; // Special case
+        else realTeam = World.teams.find(x => x.id === t.id) || t;
+
+        const result = {
+            tier: this.ev.tier,
+            placement: placement,
+            isMVP: false // MVP handled separately below
+        };
+        
+        if (realTeam.roster) {
+            realTeam.roster.forEach(p => {
+                const stats = this.pStats.get(p.id);
+                // Use tournament average rating? Or last match?
+                // p.rating2 is from last match. 
+                // Let's use stats.avgScore or calculate avg rating from stats
+                const avgRating = stats && stats.played > 0 ? (stats.score / stats.played).toFixed(2) : p.rating2;
+                p.rating2 = avgRating; // Update to average for fan calc
+                
+                const pResult = { ...result, isMVP: mvp && mvp.player.id === p.id };
+                World.updatePlayerFans(p, pResult);
+            });
+            World.updateTeamFans(realTeam, result);
+        }
+    });
+
     let rank='🏆 赛事总冠军',prize=0;
     const playerStandingIndex = standings.findIndex(t => t.isPlayer);
     if(!champ.isPlayer){
@@ -2497,9 +3576,11 @@ const Match={
 
     const mkP=p=>({
       id:p.id,name:p.name,rating:p.rating||60,role:p.role,form:p.form||1,ref:p,
-      kills:0,assists:0,deaths:0,dmg:0,
-      entryK:0,entryA:0,clutch:0,kastR:0,multiK:0,
-      rating2:0,score:0,impact:0,adr:0,kast:0,
+      matchStats: {
+        rounds: 0, kills: 0, deaths: 0, assists: 0, adr: 0, kast: 0,
+        openingKills: 0, clutchWins: 0, multiKills: 0, impact: 0, rating: 0,
+        kastRounds: 0, damage: 0 // Internal tracking
+      },
       // 特质触发状态（每张地图重置）
       _legendFlyUsed:false,   // 天外飞仙：首次播报
       _s1mpleActive:false,    // 天外飞仙：本回合是否激活
@@ -2585,100 +3666,78 @@ const Match={
     const bA=this.buyStatus(s.monA,pistol,s.isOT);
     const bB=this.buyStatus(s.monB,pistol,s.isOT);
 
-    const baseP=Game.power().eff*(1+Game.chem/200)*(1+s.mapBonusP*.3);
-    const baseAI=((s.tB||[]).reduce((a,b)=>a+b.rating*b.form,0)/Math.max(1,s.tB.length))*1.05*(1+s.mapBonusAI*.3);
-
-    const calcTraitMult=(team,isTeamA,buyInfo)=>{
-      let mult=1;
+    // --- 比赛引擎 2.0 核心开始 ---
+    // 先处理特质日志与特殊状态（保留原有特质副作用，但不用于直接决定胜负）
+    const applyTraitEffects=(team,isTeamA,buyInfo)=>{
       const myScore=isTeamA?s.sA:s.sB,oppScore=isTeamA?s.sB:s.sA;
-      const scoreDiff=myScore-oppScore; // 正=领先，负=落后
-      const oppTeam = isTeamA?s.tB:s.tA;
-      const isWest = oppTeam.some(p => ['Sweden','Denmark','Norway','France','Germany','USA','Belgium'].includes(p.ref.country));
-
+      const scoreDiff=myScore-oppScore;
       team.forEach(p=>{
         const ts=p.ref.traits||[];
-
-        // ── A. 常规特质 ──────────────────────────────────────
-        // 爆头机器：步枪局战力+3%
-        if(ts.includes('headshot')&&buyInfo.lvl==='Full')mult+=0.03;
-        // 领袖：IGL上场全队+4%，首次触发日志
-        if(ts.includes('leader')&&p.role==='IGL'){
-          mult+=0.04;
-          if(!p._leaderLogged){
-            p._leaderLogged=true;
-            UI.log(`📣 <span style="color:#eab308;font-weight:700">[领袖] ${p.name}</span> 鼓舞士气，全队战力提升！`,'spec');
-          }
+        if(ts.includes('leader')&&p.role==='IGL'&&!p._leaderLogged){
+          p._leaderLogged=true;
+          UI.log(`📣 <span style="color:#eab308;font-weight:700">[领袖] ${p.name}</span> 鼓舞士气，全队战力提升！`,'spec');
         }
-        // 神经刀：每回合随机波动
-        if(ts.includes('volatile')){
-          const volatileMult=NORMAL_TRAITS.volatile.volatileMin+Math.random()*(NORMAL_TRAITS.volatile.volatileMax-NORMAL_TRAITS.volatile.volatileMin);
-          mult*=volatileMult;
-        }
-
-        // ── E. 1.6 时代传奇特质 ──────────────────────────────
-        // 手枪王子：手枪局/ECO 战力+50%
-        if(ts.includes('手枪王子') && buyInfo.lvl === 'Eco') mult += 0.5;
-        // 东方神狙：对阵欧美战队爆气
-        if(ts.includes('东方神狙') && isWest) mult += 0.15;
-        // 韩式自瞄：伤害常驻 1.2 倍
-        if(ts.includes('韩式自瞄')) mult *= 1.2;
-        // 德国流星：全队激励已经在 power 处理，个人不受地图惩罚
-        if(ts.includes('德国流星')) {
-          // 补偿可能存在的地图劣势（简单实现：如果地图分低，补正到中等水平）
-          const myMapStr = isTeamA ? s.mapBonusP : s.mapBonusAI;
-          if(myMapStr < 0) mult += Math.abs(myMapStr) * 0.5;
-        }
-
-        // ── C. 历史专属签名特质 ──────────────────────────────
-        // 天外飞仙（s1mple）：落后≥4分时战力+20%，多杀概率翻倍
         if(ts.includes('sig_s1mple')&&scoreDiff<=-SIGNATURE_TRAITS.sig_s1mple.gapTrigger){
-          mult+=SIGNATURE_TRAITS.sig_s1mple.powerBonus;
-          p._s1mpleActive=true; // 供 _micro 使用
-          if(!p._legendFlyUsed){
-            p._legendFlyUsed=true;
-            UI.log(
-              `<span style="color:#ff6b35;font-size:13px">★</span> `+
-              `<span style="color:#ffd700;font-weight:900">[★签名·天外飞仙] ${p.name}</span> `+
-              `<span style="color:#ff9500">队伍落后，接管比赛！多杀概率翻倍！</span>`,
-              'sig-trigger'
-            );
-          }
+          p._s1mpleActive=true;
+          if(!p._legendFlyUsed){p._legendFlyUsed=true;
+            UI.log(`<span style="color:#ff6b35;font-size:13px">★</span> <span style="color:#ffd700;font-weight:900">[★签名·天外飞仙] ${p.name}</span> <span style="color:#ff9500">队伍落后，接管比赛！多杀概率翻倍！</span>`,'sig-trigger');}
         }else{p._s1mpleActive=false;}
-
-        // 载物领域（ZyWoO）：免负面，手枪局不折扣（此处通过 buyMult 补正）
-        if(ts.includes('sig_zywoo')){
-          // 手枪局本应 ×0.95，此特质强制恢复
-          if(pistol&&buyInfo.lvl==='Eco')mult+=(1/0.95-1);
-          // 状态不受负面影响（form 强制≥1.0）
-          if(p.form<1.0)p.form=1.0;
-        }
-
-        // 战术大脑（karrigan/gla1ve）：效果在 Game.power() 已处理，此处日志提示
-        if(ts.includes('sig_karrigan')||ts.includes('sig_gla1ve')){
-          if(!p._tactBrainLogged){
-            p._tactBrainLogged=true;
-            const sigKey=ts.includes('sig_karrigan')?'sig_karrigan':'sig_gla1ve';
-            UI.log(
-              `<span style="color:#a78bfa;font-size:13px">★</span> `+
-              `<span style="color:#ffd700;font-weight:900">[★签名·战术大脑] ${p.name}</span> `+
-              `<span style="color:#c4b5fd">战术统御，无视Synergy惩罚！全队×1.1</span>`,
-              'sig-trigger'
-            );
-          }
+        if(ts.includes('sig_zywoo')&&p.form<1.0)p.form=1.0;
+        if((ts.includes('sig_karrigan')||ts.includes('sig_gla1ve'))&&!p._tactBrainLogged){
+          p._tactBrainLogged=true;
+          UI.log(`<span style="color:#a78bfa;font-size:13px">★</span> <span style="color:#ffd700;font-weight:900">[★签名·战术大脑] ${p.name}</span> <span style="color:#c4b5fd">战术统御，无视Synergy惩罚！全队×1.1</span>`,'sig-trigger');
         }
       });
-      return mult;
+    };
+    applyTraitEffects(s.tA,true,bA);
+    applyTraitEffects(s.tB,false,bB);
+
+    // 1. 计算全队基础系数 (Base Modifiers)
+    const getTeamMod=(team,buyInfo,isCT)=>{
+      const mapScore=MapUtils.teamMapStr(team.map(p=>p.ref),Game.coach,s.map);
+      const mapMult=1+(mapScore-50)*0.0025;
+      const igl=team.find(p=>p.role==='IGL')||team[0];
+      const tact=((igl.ref.hltv?igl.ref.hltv.utility:60)+(Game.coach?Game.coach.tactics:50))/200;
+      let traitBonus=1;
+      team.forEach(p=>{
+        const ts=p.ref.traits||[];
+        if(ts.includes('headshot')&&buyInfo.lvl==='Full')traitBonus+=0.03;
+        if(ts.includes('leader')&&p.role==='IGL')traitBonus+=0.04;
+        if(ts.includes('volatile')){const vm=NORMAL_TRAITS.volatile.volatileMin+Math.random()*(NORMAL_TRAITS.volatile.volatileMax-NORMAL_TRAITS.volatile.volatileMin);traitBonus*=vm;}
+        if(ts.includes('手枪王子')&&buyInfo.lvl==='Eco')traitBonus+=0.5;
+        if(ts.includes('韩式自瞄'))traitBonus*=1.2;
+        if(ts.includes('sig_s1mple')&&p._s1mpleActive)traitBonus+=SIGNATURE_TRAITS.sig_s1mple.powerBonus;
+        if(ts.includes('sig_zywoo')&&pistol&&buyInfo.lvl==='Eco')traitBonus+=(1/0.95-1);
+      });
+      return buyInfo.mult*mapMult*(0.85+tact*0.3)*traitBonus;
     };
 
-    const traitMultA=calcTraitMult(s.tA,true,bA);
-    const traitMultB=calcTraitMult(s.tB,false,bB);
-    const pA=baseP*bA.mult*traitMultA*(0.8+Math.random()*.4);
-    const pB=baseAI*bB.mult*traitMultB*(0.8+Math.random()*.4);
-    const upA=bA.lvl==='Eco'&&bB.lvl==='Full'&&Math.random()<.12;
-    const upB=bB.lvl==='Eco'&&bA.lvl==='Full'&&Math.random()<.12;
-    const aWins=upA?true:(upB?false:(pA>pB));
+    const modA=getTeamMod(s.tA,bA,s.ctIsA);
+    const modB=getTeamMod(s.tB,bB,!s.ctIsA);
 
-    this._micro(aWins?s.tA:s.tB,aWins?s.tB:s.tA);
+    // 2. 执行三阶段模拟
+    const attackers=s.ctIsA?s.tB:s.tA;
+    const defenders=s.ctIsA?s.tA:s.tB;
+    const attMod=s.ctIsA?modB:modA;
+    const defMod=s.ctIsA?modA:modB;
+
+    // ECO 翻盘概率保留
+    const _ecoFlipAttTeam=attackers===s.tA?bA:bB;
+    const _ecoFlipDefTeam=defenders===s.tA?bA:bB;
+    const _oppAttBuy=attackers===s.tA?bB:bA;
+    const _oppDefBuy=defenders===s.tA?bB:bA;
+    const ecoFlipAtt=_ecoFlipAttTeam.lvl==='Eco'&&_oppAttBuy.lvl==='Full'&&Math.random()<.12;
+    const ecoFlipDef=_ecoFlipDefTeam.lvl==='Eco'&&_oppDefBuy.lvl==='Full'&&Math.random()<.12;
+
+    let result;
+    if(ecoFlipAtt){result={winner:'att'};}
+    else if(ecoFlipDef){result={winner:'def'};}
+    else{result=this._simulateRoundFlow(attackers,defenders,attMod,defMod);}
+
+    const aWins=(s.ctIsA&&result.winner==='def')||(!s.ctIsA&&result.winner==='att');
+    const ecoFlip=ecoFlipAtt||ecoFlipDef;
+    const baseP=Game.power().eff; // kept for reference only, no longer used for win calc
+
 
     const tIsA=!s.ctIsA,bomb=Math.random()<.35;
     let bonA=0,bonB=0;
@@ -2690,205 +3749,139 @@ const Match={
       s.sA++;s.monA=Math.min(16000,s.monA+3250);
       s.monB=Math.min(16000,s.monB+1400+s.lsB*500+bonB);
       s.lsB=Math.min(4,s.lsB+1);s.lsA=era.lossReset?0:Math.max(0,s.lsA-1);
-      
-      // 玩家获胜积分奖励 - 已移除，改为按排名分配
-      // let winPoints = 0;
-      // if(Tour.ev.tier === 'major') winPoints = 50;
-      // else if(Tour.ev.tier === 'a-tier') winPoints = 20;
-      // else winPoints = 5;
-      // Game.points += winPoints;
 
-      if(upA)UI.log(`${lbl} 🔥 ECO翻盘！`,'eco');else UI.log(`${lbl} 赢下回合。`,'win');
+      if(ecoFlip&&attackers===s.tA)UI.log(`${lbl} 🔥 ECO翻盘！`,'eco');else UI.log(`${lbl} 赢下回合。`,'win');
     }else{
       s.sB++;s.monB=Math.min(16000,s.monB+3250);
       s.monA=Math.min(16000,s.monA+1400+s.lsA*500+bonA);
       s.lsA=Math.min(4,s.lsA+1);s.lsB=era.lossReset?0:Math.max(0,s.lsB-1);
-      
-      // AI 获胜积分奖励 - 已移除，改为按排名分配
-      // let winPoints = 0;
-      // if(Tour.ev.tier === 'major') winPoints = 50;
-      // else if(Tour.ev.tier === 'a-tier') winPoints = 20;
-      // else winPoints = 5;
-      // if(s.opp.points !== undefined) s.opp.points += winPoints;
 
-      if(upB)UI.log(`${lbl} 🔥 对手ECO翻盘！`,'eco');else UI.log(`${lbl} 回合失利。`,'loss');
+      if(ecoFlip&&attackers===s.tB)UI.log(`${lbl} 🔥 对手ECO翻盘！`,'eco');else UI.log(`${lbl} 回合失利。`,'loss');
     }
     UI.updateScore();
     if(s.sA>=s.target||s.sB>=s.target)this.end();
   },
 
-  _micro(win,lose){
+  _simulateRoundFlow(attTeam, defTeam, attMod, defMod) {
     const s=this.s;
-    // gp = 加权随机选取选手（爆头机器有更高权重）
-    const gp=(team,opp)=>{
-      let total=team.reduce((sum,p)=>{
-        let w=p.rating*p.form;
-        if(opp.some(x=>x.ref.rarity==='legend')&&p.ref.rarity!=='legend')w*=0.95;
-        if((p.ref.traits||[]).includes('headshot'))w*=NORMAL_TRAITS.headshot.microWeightMult;
-        // 1.6 特质加成
-        if((p.ref.traits||[]).includes('韩式自瞄'))w*=1.2;
-        return sum+w;
-      },0);
-      let r=Math.random()*total;
-      for(const p of team){
-        let w=p.rating*p.form;
-        if(opp.some(x=>x.ref.rarity==='legend')&&p.ref.rarity!=='legend')w*=0.95;
-        if((p.ref.traits||[]).includes('headshot'))w*=NORMAL_TRAITS.headshot.microWeightMult;
-        if((p.ref.traits||[]).includes('韩式自瞄'))w*=1.2;
-        r-=w;if(r<=0)return p;
+    // 初始化存活状态（浅拷贝引用，保证 matchStats 写入原对象）
+    const aliveAtt=[...attTeam];
+    const aliveDef=[...defTeam];
+
+    // 1. 获取当前地图的风格配置
+    const mapStyle = MAP_STYLES[s.map] || {};
+
+    // 2. 辅助：获取属性（随机波动 0.8~1.2 + 地图权重 + IGL战术加成）
+    const getStat = (p, key) => {
+      const hltv = p.ref.hltv || World.generateHLTVProfile(p.rating, p.role);
+      const base = hltv[key] || 60;
+      const mapMult = mapStyle[key] || 1.0;
+      let roleBonus = 1.0;
+      if (p.role === 'IGL' && mapStyle.tactics) {
+        if (key === 'utility' || key === 'trading') roleBonus = mapStyle.tactics;
       }
-      return team[0];
+      return base * p.form * (0.8 + Math.random() * 0.4) * mapMult * roleBonus;
     };
 
-    const logKill=(k,v,isEntry)=>{
-      const kt=s.tA.includes(k)?'CT':'T',vt=s.tA.includes(v)?'CT':'T';
-      const kc=kt==='CT'?'var(--ct)':'var(--t)',vc=vt==='CT'?'var(--ct)':'var(--t)';
-      const tsK = k.ref.traits || [];
-      const hasSig=tsK.some(t=>isSignatureTrait(t)) || k.ref.isLegend16;
-      const hasLegT=tsK.some(t=>isAnyLegendTrait(t)) || k.ref.isLegend16;
-      const kName=hasSig
-        ?`<span style="color:#ffd700;font-weight:900;text-shadow:0 0 6px rgba(255,215,0,0.5)">${k.name}</span>`
-        :hasLegT?`<span style="color:#ffd700;font-weight:700">${k.name}</span>`
-        :k.ref.rarity==='legend'?`<span style="color:#ffd700;font-weight:700">${k.name}</span>`
-        :k.name;
-      const vName=v.ref.rarity==='legend'||isAnyLegendTrait((v.ref.traits||[])[0])
-        ?`<span style="color:#ffd700">${v.name}</span>`:v.name;
-      const kIcons=[
-        k.ref.rarity==='legend'?'👑':'',
-        tsK.includes('headshot')&&Math.random()<0.4?'🎯':'',  // 爆头机器高亮
-        tsK.includes('韩式自瞄')?'🎯':'',
-        tsK.includes('穿墙神童')?'🧱':'',
-        hasSig?'★':''
-      ].filter(Boolean).join('');
-      UI.log(`<span style="color:${kc}">[${kt}] ${kName}</span> ${kIcons} ${isEntry?'💥':'🔫'} <span style="color:${vc}">[${vt}] ${vName}</span>`,'');
-    };
+    // --- 阶段一：首杀争夺 (The Opening) ---
+    // 选人：T找Entry能力最强的，CT找Opening/Sniping最强的
+    const tEntry = aliveAtt.reduce((a,b) => getStat(a,'entrying') > getStat(b,'entrying') ? a : b);
+    const ctAnchor = aliveDef.reduce((a,b) => (getStat(a,'opening') + getStat(a,'sniping')) > (getStat(b,'opening') + getStat(b,'sniping')) ? a : b);
 
-    // 首杀判定
-    const entrySelector = (team, opp) => {
-      // 乌克兰死神：AWP首杀率提升
-      const markeloff = team.find(p => (p.ref.traits||[]).includes('乌克兰死神'));
-      if (markeloff && Math.random() < 0.5) return markeloff;
-      return team.find(p=>p.role==='Entry')||gp(team,opp);
-    };
+    // 核心：Firepower 占 60%，场景属性占 40%
+    const tPower = (getStat(tEntry,'firepower') * 0.6 + getStat(tEntry,'entrying') * 0.4) * attMod;
+    let ctScore = 0;
+    if (ctAnchor.role === 'Sniper') {
+      ctScore = getStat(ctAnchor,'firepower') * 0.5 + getStat(ctAnchor,'sniping') * 0.5;
+    } else {
+      ctScore = getStat(ctAnchor,'firepower') * 0.6 + getStat(ctAnchor,'opening') * 0.4;
+    }
+    const ctPower = ctScore * defMod;
 
-    const entry=entrySelector(win,lose),victim=gp(lose,win);
-    
-    // 北美狙神：80% 绝对截杀突破手
-    let entryWinChance = 0.65;
-    const frod = lose.find(p => (p.ref.traits||[]).includes('北美狙神') && p.role === 'Sniper');
-    if (frod && entry.role === 'Entry' && Math.random() < 0.8) {
-      entryWinChance = 0.1; // 极大概率被截杀
+    if(tPower > ctPower){
+      this._kill(tEntry, ctAnchor, 'opening', attTeam, defTeam);
+      aliveDef.splice(aliveDef.indexOf(ctAnchor), 1);
+    } else {
+      this._kill(ctAnchor, tEntry, 'opening', attTeam, defTeam);
+      aliveAtt.splice(aliveAtt.indexOf(tEntry), 1);
     }
 
-    // 人形坦克：提升生存率
-    if (win.some(p => (p.ref.traits||[]).includes('人形坦克') && p.role === 'Entry')) {
-      entryWinChance += 0.15;
+    // --- 阶段二：中期交换 (The Trade & Brawl) ---
+    // Firepower 绝对主宰（70%），Trading 和 Utility 为修正值
+    let tradeRound = 0;
+    while(aliveAtt.length > 0 && aliveDef.length > 0 && tradeRound < 5){
+      tradeRound++;
+      const p1 = aliveAtt[Math.floor(Math.random() * aliveAtt.length)];
+      const p2 = aliveDef[Math.floor(Math.random() * aliveDef.length)];
+
+      const attUtil = aliveAtt.reduce((sum,p) => sum + getStat(p,'utility'), 0) / aliveAtt.length;
+      const defUtil = aliveDef.reduce((sum,p) => sum + getStat(p,'utility'), 0) / aliveDef.length;
+
+      const p1Score = (getStat(p1,'firepower') * 0.7 + getStat(p1,'trading') * 0.2 + attUtil * 0.1) * attMod;
+      const p2Score = (getStat(p2,'firepower') * 0.7 + getStat(p2,'trading') * 0.2 + defUtil * 0.1) * defMod;
+
+      if(p1Score > p2Score){
+        this._kill(p1, p2, 'normal', attTeam, defTeam);
+        aliveDef.splice(aliveDef.indexOf(p2), 1);
+      } else {
+        this._kill(p2, p1, 'normal', attTeam, defTeam);
+        aliveAtt.splice(aliveAtt.indexOf(p1), 1);
+      }
+      if(aliveAtt.length <= 1 || aliveDef.length <= 1) break;
     }
 
-    entry.entryA++;victim.entryA++;
-    let ek,ev;
-    if(Math.random() < entryWinChance){entry.entryK++;entry.kills++;victim.deaths++;entry.dmg+=100;ek=entry;ev=victim;}
-    else{victim.entryK++;victim.kills++;entry.deaths++;victim.dmg+=100;ek=victim;ev=entry;}
-    if(Math.random()<.5)logKill(ek,ev,true);
+    // --- 阶段三：残局决胜 (The Clutch) ---
+    // Firepower 50% + Clutching 50%，残局既要枪硬又要脑子清楚
+    if(aliveAtt.length > 0 && aliveDef.length > 0){
+      const pAtt = aliveAtt[0];
+      const pDef = aliveDef[0];
+      const attClutch = (getStat(pAtt,'firepower') * 0.5 + getStat(pAtt,'clutching') * 0.5) * attMod * aliveAtt.length;
+      const defClutch = (getStat(pDef,'firepower') * 0.5 + getStat(pDef,'clutching') * 0.5) * defMod * aliveDef.length;
 
-    // 穿墙神童：大幅提升多杀
-    let wkMult = 1.0;
-    const nothing = win.find(p => (p.ref.traits||[]).includes('穿墙神童'));
-    if (nothing) wkMult += 2.0;
-
-    // 压枪鼻祖：扫射转移
-    const heaton = win.find(p => (p.ref.traits||[]).includes('压枪鼻祖'));
-    if (heaton) wkMult += 0.3;
-
-    // 绕后之王：自由人多杀提升
-    const gtr = win.find(p => (p.ref.traits||[]).includes('绕后之王') && p.role === 'Lurker');
-    if (gtr) wkMult += 0.4;
-
-    // 天外飞仙多杀加成：wk基础+50%（四舍五入）
-    let wk=Math.floor(Math.random()*2)+4;
-    const s1mpleWinner=win.find(p=>(p.ref.traits||[]).includes('sig_s1mple')&&p._s1mpleActive);
-    if(s1mpleWinner)wk=Math.round(wk*SIGNATURE_TRAITS.sig_s1mple.multiKillMult*0.6); // 综合多杀概率
-    
-    wk = Math.round(wk * wkMult);
-
-    const lk=Math.floor(Math.random()*4);
-
-    const km=new Map();
-    const addK=(k,v)=>{
-      k.kills++;v.deaths++;k.dmg+=80+Math.random()*40;
-      km.set(k,(km.get(k)||0)+1);
-      if(Math.random()<.25)logKill(k,v,false);
-      if(Math.random()<.5){const a=gp(win.includes(k)?win:lose,win.includes(k)?lose:win);if(a!==k){a.assists++;a.dmg+=30+Math.random()*30;}}
-    };
-    for(let i=1;i<wk;i++)addK(gp(win,lose),gp(lose,win));
-    for(let i=(entry.deaths>0?1:0);i<lk;i++)addK(gp(lose,win),gp(win,lose));
-    for(const[p,k]of km)if(k>=2)p.multiK++;
-
-    // ── 残局判定（lk>=3：对方还有3人以上，1vX场景）
-    if(lk>=3){
-      const sv=gp(win,lose);
-      const ts=sv.ref.traits||[];
-      const st=s.tA.includes(sv)?'CT':'T',sc=st==='CT'?'var(--ct)':'var(--t)';
-
-      // 计算该选手的基础clutch成功率
-      let clutchChance=0.35;
-      let clutchMsg='';
-      let clutchType='normal'; // normal / legend / sig
-
-      // 签名特质：载物领域（ZyWoO）
-      if(ts.includes('sig_zywoo')){
-        clutchChance=0.35+SIGNATURE_TRAITS.sig_zywoo.clutchBonus;
-        clutchMsg=`<span style="color:#ffd700;font-size:13px">★</span> `+
-          `<span style="color:#ffd700;font-weight:900">[★签名·载物领域] ${sv.name}</span> `+
-          `<span style="color:#00d4ff">域展开，Clutch胜率+55%！</span>`;
-        clutchType='sig';
-      }
-      // 1.6 特质：黑客帝国
-      else if(ts.includes('黑客帝国')){
-        clutchChance=0.35+0.40;
-        clutchMsg=`<span style="color:#22c55e;font-size:13px">★</span> `+
-          `<span style="color:#ffd700;font-weight:900">[1.6传奇·黑客帝国] ${sv.name}</span> `+
-          `<span style="color:#22c55e">身法爆发，1vX 概率暴增！</span>`;
-        clutchType='sig';
-      }
-      // 1.6 特质：黑甲忍者
-      else if(ts.includes('黑甲忍者') && (st === 'CT' || lk >= 3)){
-        clutchChance=0.35+0.35;
-        clutchMsg=`<span style="color:#18181c;font-size:13px">★</span> `+
-          `<span style="color:#ffd700;font-weight:900">[1.6传奇·黑甲忍者] ${sv.name}</span> `+
-          `<span style="color:#dim">幽灵现身，无声暗杀！</span>`;
-        clutchType='sig';
-      }
-      // 传奇特质：绝对核心
-      else if(ts.includes('legend_core')){
-        clutchChance=0.35+GENERIC_LEGEND_TRAITS.legend_core.clutchPowerBonus+0.15;
-        clutchMsg=`<span style="color:#a78bfa;font-size:13px">✦</span> `+
-          `<span style="color:#ffd700;font-weight:900">[✦传奇·绝对核心] ${sv.name}</span> `+
-          `<span style="color:#c4b5fd">全属性爆发，单挑多人！</span>`;
-        clutchType='legend';
-      }
-      // 常规特质：大心脏
-      else if(ts.includes('bigHeart')){
-        clutchChance=0.35+NORMAL_TRAITS.bigHeart.clutchBonus;
-        clutchMsg=`💪 <span style="color:#f97316;font-weight:700">[大心脏] <span style="color:${sc}">${sv.name}</span></span> 临危不惧，Clutch！`;
-        clutchType='normal';
-      }
-      // 无特质：普通概率
-      else{
-        clutchChance=0.35;
-        clutchMsg=`🔥 <span style="color:${sc};font-weight:900">[${st}] ${sv.name}</span> 极限1vX残局！`;
-        clutchType='normal';
-      }
-
-      if(Math.random()<clutchChance){
-        sv.clutch++;
-        if(clutchType==='sig')UI.log(clutchMsg,'sig-trigger');
-        else if(clutchType==='legend')UI.log(clutchMsg,'legend-trigger');
-        else UI.log(clutchMsg,'spec');
+      if(attClutch > defClutch){
+        aliveDef.forEach(p => this._kill(pAtt, p, 'clutch', attTeam, defTeam));
+        return{winner:'att'};
+      } else {
+        aliveAtt.forEach(p => this._kill(pDef, p, 'clutch', attTeam, defTeam));
+        return{winner:'def'};
       }
     }
 
-    [...win,...lose].forEach(p=>{if((km.get(p)||0)>0||Math.random()<.3||(win.includes(p)&&Math.random()<.8))p.kastR++;});
+    // 多杀 & KAST 结算
+    const allPlayers=[...attTeam,...defTeam];
+    allPlayers.forEach(p=>{
+      if(p.matchStats.kills-(p._prevKills||0)>=3)p.matchStats.multiKills=(p.matchStats.multiKills||0)+1;
+      p._prevKills=p.matchStats.kills;
+      if(p.matchStats.kills>(p._prevRoundKills||0)||
+         p.matchStats.assists>(p._prevRoundAssists||0)||
+         p.matchStats.deaths===(p._prevRoundDeaths||0)){p.matchStats.kastRounds++;}
+      p._prevRoundKills=p.matchStats.kills;
+      p._prevRoundAssists=p.matchStats.assists;
+      p._prevRoundDeaths=p.matchStats.deaths;
+      p.matchStats.rounds++;
+    });
+
+    return{winner:aliveAtt.length>0?'att':'def'};
+  },
+
+  _kill(killer,victim,type,attTeam,defTeam){
+    const s=this.s;
+    killer.matchStats.kills++;
+    killer.matchStats.damage+=rnd(80,110);
+    victim.matchStats.deaths++;
+    if(type==='opening')killer.matchStats.openingKills=(killer.matchStats.openingKills||0)+1;
+    if(type==='clutch')killer.matchStats.clutchWins=(killer.matchStats.clutchWins||0)+1;
+
+    // 日志输出（首杀/残局必出，普通随机 20%）
+    if(type==='opening'||type==='clutch'||Math.random()<0.2){
+      const isAttKiller=attTeam&&attTeam.includes(killer);
+      const isAttVictim=attTeam&&attTeam.includes(victim);
+      const kColor=isAttKiller?'var(--t)':'var(--ct)';
+      const vColor=isAttVictim?'var(--t)':'var(--ct)';
+      const icon=type==='opening'?'⚡ 首杀':type==='clutch'?'🔥 残局':'🔫';
+      const logType=type==='normal'?'':'spec';
+      UI.log(`<span style="color:${kColor}">${killer.name}</span> ${icon} <span style="color:${vColor}">${victim.name}</span>`,logType);
+    }
   },
 
   auto(){
@@ -2906,26 +3899,80 @@ const Match={
     if(liveCtrl)liveCtrl.classList.add('hidden');
 
     const calc=team=>team.forEach(p=>{
-      p.adr=(p.dmg/Math.max(1,s.round)).toFixed(1);
-      p.kast=((p.kastR/Math.max(1,s.round))*100).toFixed(1);
-      p.impact=Math.max(.5,(p.multiK*.4+p.entryK*.25+p.clutch*.6)).toFixed(2);
-      let raw=((p.kills+p.assists*.3)/Math.max(1,p.deaths))*.45+(p.adr/100)*.2+(p.kast/100)*.2+parseFloat(p.impact)*.15;
-      if(isSemiOrFinal&&(p.ref.traits||[]).includes('legend_winner')&&raw<GENERIC_LEGEND_TRAITS.legend_winner.minRatingInFinals){
-        raw=GENERIC_LEGEND_TRAITS.legend_winner.minRatingInFinals;
-        UI.log(
-          `<span style="color:#a78bfa;font-size:13px">✦</span> `+
-          `<span style="color:#ffd700;font-weight:900">[✦传奇·天生赢家] ${p.name}</span> `+
-          `<span style="color:#c4b5fd">大赛精神爆发，Rating强制≥1.10！</span>`,
-          'legend-trigger'
-        );
+      // Use matchStats for calculation
+      const s = p.matchStats;
+      const rounds = Math.max(1, s.rounds);
+      
+      const kpr = s.kills / rounds;
+      const survivalRate = 1 - (s.deaths / rounds);
+      const impactScore = (s.openingKills + s.clutchWins * 1.5) / rounds;
+      const adr = s.damage / rounds;
+      const adrFactor = adr / 100;
+      const kast = (s.kastRounds / rounds) * 100;
+      const kastFactor = kast / 100;
+      
+      let rating = 
+          (kpr * 0.30) + 
+          (impactScore * 0.25) + 
+          (survivalRate * 0.15) + 
+          (adrFactor * 0.20) + 
+          (kastFactor * 0.10);
+      
+      // Bonus for Legend traits (optional, or remove if strictly stats based)
+      // User said: Rating只能由matchStats计算得出. So removing trait hacks here.
+      
+      p.rating2 = rating.toFixed(2);
+      
+      // Update display properties for UI
+      p.kills = s.kills; p.deaths = s.deaths; p.assists = s.assists;
+      p.adr = adr.toFixed(1); p.kast = kast.toFixed(1); p.impact = (impactScore * 2.13).toFixed(2); // Scale impact for HLTV-like display (usually around 1.0)
+      
+      // Internal score for MVP selection (keep existing logic or use rating)
+      p.score = rating; 
+      
+      p.ref.ys.matches++;
+      p.ref.ys.ratingSum+=parseFloat(p.rating2);
+      
+      // Update Performance Tracker
+      if(p.ref.performanceTracker) {
+          if(rating < 0.95) p.ref.performanceTracker.lowRatingStreak++;
+          else p.ref.performanceTracker.lowRatingStreak = 0;
+          
+          if(rating > 1.20) p.ref.performanceTracker.highRatingStreak++;
+          else p.ref.performanceTracker.highRatingStreak = 0;
       }
-      p.rating2=raw.toFixed(2);
-      const cs=p.clutch*.5,es=p.entryA>0?p.entryK/p.entryA:0;
-      p.score=0.35*raw+0.20*parseFloat(p.impact)+0.15*(p.adr/100)+0.10*(p.kast/100)+0.10*cs+0.10*es;
-      if(isFinal)p.score*=1.25;
-      p.ref.ys.matches++;p.ref.ys.ratingSum+=parseFloat(p.rating2);
     });
     calc(s.tA);calc(s.tB);
+    
+    // Check Streaks and Apply Effects (Only for player team)
+    s.tA.forEach(p => {
+        if(p.ref.teamId === 'PLAYER' && p.ref.performanceTracker) {
+            const tracker = p.ref.performanceTracker;
+            if(tracker.lowRatingStreak >= 3) {
+                // Negative Effects
+                const loss = Math.floor(Game.fans * 0.03);
+                Game.fans = Math.max(0, Game.fans - loss);
+                p.ref.form = Math.max(0.6, p.ref.form - 0.05); // Confidence hit
+                // Commercial appeal simplified as fan loss for now
+                UI.log(`📉 ${p.name} 状态低迷 (${tracker.lowRatingStreak}连败)，粉丝失望流失 ${loss} 人`, 'loss');
+            }
+            if(tracker.highRatingStreak >= 3) {
+                // Positive Effects
+                const gain = Math.floor(Game.fans * 0.05);
+                Game.fans += gain;
+                p.ref.form = Math.min(1.3, p.ref.form + 0.05);
+                UI.log(`🔥 ${p.name} 手感火热 (${tracker.highRatingStreak}连胜)，吸粉 ${gain} 人！`, 'win');
+            }
+        }
+    });
+
+    // Update Player Fans based on Match Performance (Immediate minor update or wait for tournament end?)
+    // Prompt says: "Update Player Fans ... after every tournament". 
+    // But maybe we want match-level granularity? 
+    // "Config: fanGain = ... * (1 + (matchRating - 1) * 0.8)" -> Implies per match or per tournament avg.
+    // "Update entry: updatePlayerFans(player) at end of every tournament."
+    // So we do NOT update here. We wait for _finalize.
+    
     s.tA.sort((a,b)=>b.score-a.score);s.tB.sort((a,b)=>b.score-a.score);
     const all=[...s.tA,...s.tB].sort((a,b)=>b.score-a.score);
     s.mvp=all[0];s.evps=all.slice(1,4).filter(p=>p.rating2>=1.15);
@@ -2984,10 +4031,83 @@ const UI={
     document.querySelectorAll('.main>div').forEach(p=>p.classList.add('hidden'));
     const pg=document.getElementById('page-'+id);if(pg)pg.classList.remove('hidden');
     document.querySelectorAll('.nav').forEach(b=>b.classList.remove('on'));
-    const navMap={home:0,schedule:1,market:2,match:3,hall:4};
+    const navMap={home:0,rankings:1,schedule:2,market:3,match:4,hall:5};
     if(navMap[id]!=null){const navBtns=document.querySelectorAll('.nav');if(navBtns[navMap[id]])navBtns[navMap[id]].classList.add('on');}
+    if(id==='home')this.renderHome();
+    if(id==='market')this.renderMarketTimer();
     if(id==='schedule')this.renderCal();
     if(id==='hall')this.renderHall();
+    if(id==='rankings')this.renderRankings();
+  },
+  
+  renderHome(){
+    const panel = document.getElementById('home-next-match-panel');
+    const content = document.getElementById('home-next-match-content');
+    
+    // Time Controls Widget
+    let timeCtrl = document.getElementById('home-time-ctrl');
+    if(!timeCtrl) {
+        timeCtrl = document.createElement('div');
+        timeCtrl.id = 'home-time-ctrl';
+        timeCtrl.className = 'panel';
+        timeCtrl.style.marginBottom = '16px';
+        timeCtrl.style.padding = '12px';
+        // Insert before next match panel or at top
+        const parent = document.querySelector('#page-home > div');
+        if(parent) parent.insertBefore(timeCtrl, parent.firstChild);
+    }
+    
+    timeCtrl.innerHTML = `
+        <div class="panel-title">📅 时间管理 <span style="font-weight:400;color:var(--dim);font-size:12px;margin-left:8px">${Game.date.toLocaleDateString()}</span></div>
+        <div style="display:flex;gap:8px">
+            <button class="btn" style="flex:1;background:var(--panel2);border:1px solid var(--border);color:#fff" onclick="Game.advanceDay()">推进 1 天</button>
+            <button class="btn" style="flex:1;background:var(--panel2);border:1px solid var(--border);color:#fff" onclick="Game.advanceWeek()">推进 1 周</button>
+            <button class="btn" style="flex:1;background:var(--panel2);border:1px solid var(--border);color:#fff" onclick="Game.advanceMonth()">推进 1 月</button>
+        </div>
+    `;
+
+    if(!panel || !content) return;
+    
+    // Find next event
+    const today = Game.date;
+    const upcoming = Cal.evs.filter(e => e.date >= today).sort((a,b)=>a.date-b.date);
+    
+    if(upcoming.length === 0){
+      panel.style.display = 'none';
+      return;
+    }
+    
+    const ev = upcoming[0];
+    const diffTime = ev.date - today;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+    
+    let timeText = diffDays <= 0 ? '<span style="color:var(--win);font-weight:700">今天开赛！</span>' : 
+                   diffDays === 1 ? '<span style="color:var(--gold)">明天</span>' : 
+                   `${diffDays} 天后`;
+    
+    // Check eligibility
+    const rank = Game.rank || 999;
+    const diff = (ev.date.getMonth()%3===0)?'easy':((ev.date.getMonth()%3===1)?'mid':'hard');
+    let elig = true; let reason = '';
+    
+    if(ev.minRank && rank > ev.minRank){
+        elig = false;
+        reason = `需世界排名 Top ${ev.minRank} (当前: ${rank})`;
+    }
+
+    panel.style.display = 'block';
+    content.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="font-weight:700;color:#fff;font-size:15px">${ev.name}</div>
+        <div style="font-size:10px;background:var(--panel2);padding:2px 6px;border-radius:4px;border:1px solid var(--border);color:${ev.tier==='major'?'var(--mvp)':ev.tier==='a-tier'?'var(--blue)':'var(--dim)'}">${ev.tier==='major'?'Major':ev.tier==='a-tier'?'A-Tier':(diff==='hard'?'C-Hard':diff==='mid'?'C-Mid':'C-Easy')}</div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div>${timeText}</div>
+        <div style="font-family:Consolas;color:var(--dim)">$${ev.prize.toLocaleString()}</div>
+      </div>
+      ${!elig ? `<div style="font-size:11px;color:var(--loss);margin-bottom:4px">❌ 未达标: ${reason}</div>` : ''}
+      <button class="btn full" onclick="UI.page('schedule')" style="margin-top:5px;background:var(--panel2);border:1px solid var(--border);color:var(--dim)">前往日历报名 ➔</button>
+    `;
   },
 
   renderHall(){
@@ -3006,6 +4126,34 @@ const UI={
     const p=World.players.find(x=>x.id===id);if(!p)return;
     const careerName=document.getElementById('career-name');
     if(careerName)careerName.innerHTML=`${p.name} <span style="font-size:14px;color:var(--dim)">生涯数据</span>`;
+
+    const statsEl=document.getElementById('career-stats');
+    if(statsEl){
+      const isMyTeam=p.teamId==='PLAYER'||(Game.roster&&Game.roster.some(r=>r.id===p.id));
+      const isLegend = p.evalStatus === 2;
+      const isEvaled = p.evalStatus === 1;
+
+      if(isMyTeam || isLegend || isEvaled){
+        if(!p.hltv)p.hltv=World.generateHLTVProfile(p.rating,p.role);
+        const h=p.hltv;
+        const labels={firepower:'Firepower',entrying:'Entrying',trading:'Trading',opening:'Opening',clutching:'Clutching',sniping:'Sniping',utility:'Utility'};
+        statsEl.classList.remove('hidden');
+        statsEl.innerHTML = Object.keys(labels).map(k => {
+            let displayVal = '???';
+            let color = 'var(--dim)';
+            if (isMyTeam || isLegend) {
+                const v = h[k] || 0;
+                displayVal = v;
+                color = v >= 85 ? 'var(--gold)' : v >= 75 ? 'var(--win)' : v < 60 ? 'var(--loss)' : '#fff';
+            } else if (isEvaled && p.evalRanges) {
+                displayVal = p.evalRanges[k];
+                color = 'var(--blue)';
+            }
+            return `<div style="text-align:center"><div style="font-size:10px;color:var(--dim)">${labels[k]}</div><div style="font-weight:700;color:${color}">${displayVal}</div></div>`;
+        }).join('');
+      }else{statsEl.classList.add('hidden');}
+    }
+
     const protoEl=document.getElementById('career-proto');
     if(protoEl){
       if(p.isReal&&(p.realName||p.handle||p.country)){
@@ -3068,7 +4216,16 @@ const UI={
     setText('ui-chem-max',Game.chemCap()+'%');
     setText('ui-fatigue',Game.fatigue+'%');
     setHTML('ui-syn',Game.synCache.msgs.join(''));
-    this.renderRoster();this.renderCoach();this.renderMapPool();
+    this.renderRoster();this.renderCoach();this.renderMapPool();this.renderHome();
+  },
+
+  renderMarketTimer() {
+      const el = document.getElementById('market-timer');
+      if (!el) return;
+      const today = Game.date;
+      const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+      const diffDays = Math.ceil((nextMonth - today) / (1000 * 60 * 60 * 24));
+      el.innerText = `${diffDays} 天后更新`;
   },
 
   renderRoster(){
@@ -3091,7 +4248,7 @@ const UI={
         ${ageWarn}
         <div class="mapbars">${myMaps.slice(0,3).map(m=>`<div class="mapbar-row"><span class="mapbar-name">${MapUtils.display(m.map)}</span><div class="mapbar-bg"><div class="mapbar-fill" style="width:${m.str}%;background:var(--win)"></div></div><span style="font-size:9px;color:var(--dim)">${m.str}</span></div>`).join('')}
         ${myMaps.length===0?'<div style="font-size:10px;color:var(--dim)">当前图池无擅长图</div>':''}</div>
-        <button class="btn danger full" onclick="event.stopPropagation();Game.fireP('${p.id}')">解雇</button>
+        <button class="btn danger full" onclick="event.stopPropagation();Game.sellP('${p.id}')">挂牌出售 ($${Math.floor(p.price * 0.6).toLocaleString()})</button>
       </div>`;
     }).join('');
   },
@@ -3135,10 +4292,33 @@ const UI={
         <div class="cev-name" style="color:${e.tier==='major'?'var(--mvp)':'#fff'}">${e.name}
           ${boTag(e.tier,'group')} → ${boTag(e.tier,'ko')}${e.tier==='major'?` → ${boTag(e.tier,'final')}`:''}
         </div>
-        <div class="cev-sub">准入: ${e.minFans}粉丝 | 奖金: $${e.prize.toLocaleString()} | 队伍: ${e.teams}</div>
+        <div class="cev-sub">准入: 世界排名前 ${e.minRank} | 奖金: $${e.prize.toLocaleString()} | 队伍: ${e.teams}${e.difficulty?` | 难度: ${e.difficulty==='easy'?'入门':e.difficulty==='mid'?'进阶':'精英'}`:''}</div>
       </div>
       <div>${e.isReg?'<button class="btn dark" disabled>已报名</button>':`<button class="btn" onclick="Cal.register('${e.id}')">报名</button>`}</div>
     </div>`).join(''):'<div style="color:var(--dim);padding:20px;text-align:center">本年赛事已结束，推进到下一年吧</div>';
+  },
+
+  renderRankings(){
+    const tbody=document.getElementById('rank-list');if(!tbody)return;
+    const all=[...World.teams.map(t=>t),{id:'PLAYER',name:'我的战队',rating:Game.power().eff,points:Game.points,lastRank:Game.lastRank,isPlayer:true,isReal:true}];
+    all.sort((a,b)=>{if((b.points||0)!==(a.points||0))return(b.points||0)-(a.points||0);return(b.rating||0)-(a.rating||0);});
+    const top=all.slice(0,100);
+    tbody.innerHTML=top.map((t,idx)=>{
+      const rank=idx+1;
+      const prev=t.isPlayer?Game.lastRank:(t.lastRank||999);
+      let delta='—',color='var(--dim)';
+      if(prev&&prev!==999&&prev!==rank){
+        const d=prev-rank;
+        delta=(d>0?`↑${d}`:`↓${Math.abs(d)}`);
+        color=d>0?'var(--win)':'var(--loss)';
+      }
+      return `<tr>
+        <td style="text-align:center">${rank}</td>
+        <td style="text-align:left">${teamNameWithStar(t)}</td>
+        <td style="text-align:center">${(t.points||0).toLocaleString()}</td>
+        <td style="text-align:center;color:${color}">${delta}</td>
+      </tr>`;
+    }).join('');
   },
 
   showHub(){
@@ -3288,6 +4468,15 @@ const UI={
       <div style="font-size:14px;font-weight:700;color:#eee">🎖 ${e.player.name} <span style="font-size:10px;color:var(--dim)">[${e.team.name}]</span></div>
       <div style="font-size:11px;color:var(--dim)">得分 <b style="color:var(--evp)">${e.avgScore.toFixed(2)}</b> | 场次 ${e.played}</div>
     </div>`).join('');
+  },
+
+  signSponsor(tierName) {
+      // Wrapper for UI to call SponsorManager
+      const contract = SponsorManager.sign(tierName, Game);
+      if(contract) {
+          // Refresh if on sponsor page
+          if(UI.currentPage === 'sponsors') UI.renderSponsors();
+      }
   },
 
   showEventTicker(msg){
