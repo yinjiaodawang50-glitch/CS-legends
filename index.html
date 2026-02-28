@@ -104,6 +104,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .cev{display:flex;align-items:center;gap:14px;padding:11px 14px;background:var(--panel2);border-left:3px solid var(--border);margin-bottom:8px;border-radius:5px;transition:.15s}
 .cev.major{border-left-color:var(--mvp);background:rgba(255,215,0,.04)}
 .cev.atier{border-left-color:var(--blue)}
+.cev.btier{border-left-color:#10b981;background:rgba(16,185,129,.03)}
 .cev.ctier{border-left-color:var(--dim2)}
 .cev-date{font-family:Consolas,monospace;color:var(--dim);font-size:12px;width:55px;flex-shrink:0}
 .cev-body{flex:1}
@@ -383,6 +384,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
   <button class="nav" onclick="UI.page('market')">🛒 转会市场</button>
   <button class="nav" onclick="UI.page('match')">🔫 赛事中心</button>
   <button class="nav" onclick="UI.page('hall')">🏆 荣誉室</button>
+  <button class="nav" onclick="UI.page('facilities')">🏗️ 基地建设</button>
   <button class="nav" onclick="UI.page('sponsors')">💰 赞助商</button>
   <div style="flex:1"></div>
   <button class="nav" style="color:var(--gold)" onclick="SaveManager.save()">💾 保存游戏</button>
@@ -390,7 +392,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
   <div class="statbar">
     <div style="font-size:11px;font-weight:700;color:var(--dim);margin-bottom:6px;letter-spacing:.5px">NEWS TICKER</div>
     <div id="news-ticker" style="height:80px;overflow-y:auto;font-size:10px;color:var(--dim2);margin-bottom:10px;line-height:1.4"></div>
-    <div class="srow"><span>资金</span><span class="sval" id="ui-money">$5,000</span></div>
+    <div class="srow"><span>资金</span><span class="sval" id="ui-money">$30,000</span></div>
     <div class="srow"><span>周薪</span><span class="sval" id="ui-salary" style="color:var(--loss)">$0</span></div>
     <div class="srow"><span>粉丝</span><span class="sval" id="ui-fans">100</span></div>
     <div class="srow"><span>赛季</span><span class="sval" id="ui-season">2000</span></div>
@@ -504,6 +506,15 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
     </div>
     <div id="market-players" class="gcards" style="grid-template-columns:repeat(auto-fill,minmax(200px,1fr))"></div>
     <div id="market-coaches" class="gcards hidden" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr))"></div>
+  </div>
+</div>
+
+<div id="page-facilities" class="hidden">
+  <div class="hdr">
+    <div><h1>基地建设</h1><p>升级设施以提升战队长期竞争力</p></div>
+  </div>
+  <div class="panel">
+    <div id="facilities-list" class="gcards" style="grid-template-columns:1fr"></div>
   </div>
 </div>
 
@@ -772,26 +783,91 @@ const ROLES={
 
 // A. 【常规特质】—— 路人选手20%概率获得1个
 const NORMAL_TRAITS={
+  // ── 进攻型 ─────────────────────
   headshot:{
     name:'爆头机器', tier:'normal', color:'#ef4444', badge:'🎯',
-    desc:'步枪局（Full Buy）击杀权重+15%；触发击杀在日志高亮',
-    roundMult(buy){return buy.lvl==='Full'?0.03:0;},
-    microWeightMult:1.25
+    desc:'步枪局（Full Buy）个人战力+6%；担任首杀角色时额外+4%',
+    combatBonus(buy,isOpener){return (buy.lvl==='Full'?0.06:0)+(isOpener?0.04:0);},
   },
+  aggressor:{
+    name:'极限侵略', tier:'normal', color:'#dc2626', badge:'🔥',
+    desc:'作为T方攻击时战力+6%；前3回合开局冲动再+4%',
+    attackBonus:0.06, earlyBonus:0.04
+  },
+  rapidFire:{
+    name:'连点大师', tier:'normal', color:'#f87171', badge:'💥',
+    desc:'中期枪战（Brawl）胜率+9%；多杀概率+15%',
+    brawlBonus:0.09, multiKillChance:0.15
+  },
+  coldBlood:{
+    name:'冷血猎手', tier:'normal', color:'#60a5fa', badge:'🧊',
+    desc:'每当己方队友倒下，本选手当回合战力+4%（叠加，上限+20%）',
+    tradeUpBonus:0.04, tradeUpCap:0.20
+  },
+  // ── 防守型 ─────────────────────
   bigHeart:{
     name:'大心脏', tier:'normal', color:'#f97316', badge:'💪',
-    desc:'残局1vX时Clutch成功率+40%，成功必定日志高亮',
-    clutchBonus:0.40
+    desc:'残局1vX时Clutch成功率+25%，成功必定日志高亮',
+    clutchBonus:0.25
   },
+  anchor:{
+    name:'中流砥柱', tier:'normal', color:'#06b6d4', badge:'⚓',
+    desc:'作为CT防守方时个人战力+6%；被分配锚点阵位时额外+4%',
+    ctBonus:0.06, anchorBonus:0.04
+  },
+  retake:{
+    name:'反夺神手', tier:'normal', color:'#8b5cf6', badge:'🔄',
+    desc:'下半场（>12回合）CT战力+8%；CT残局防守+6%',
+    retakeBonus:0.08, lateClutchBonus:0.06
+  },
+  // ── 状态型 ─────────────────────
   volatile:{
     name:'神经刀', tier:'normal', color:'#a855f7', badge:'⚡',
-    desc:'每回合战力随机乘0.75~1.35，极高上限与极低下限',
-    volatileMin:0.75, volatileMax:1.35
+    desc:'每回合战力随机乘0.80~1.30，极高上限与极低下限',
+    volatileMin:0.80, volatileMax:1.30
   },
+  streaky:{
+    name:'手感派', tier:'normal', color:'#fbbf24', badge:'🎰',
+    desc:'连赢2回合+4%，3连+8%，4连+15%；输回合后重置',
+    streakMults:[0,0,0.04,0.08,0.15]
+  },
+  clutchGene:{
+    name:'决赛基因', tier:'normal', color:'#10b981', badge:'🧬',
+    desc:'半决赛/决赛阶段全场战力+5%；最终图加时+4%',
+    finalsBonus:0.05, lastMapBonus:0.04
+  },
+  // ── 战术型 ─────────────────────
   leader:{
     name:'领袖', tier:'normal', color:'#eab308', badge:'📣',
     desc:'担任IGL时全队回合战力+4%；首次触发日志播报',
     roundMult(role){return role==='IGL'?0.04:0;}
+  },
+  utilityKing:{
+    name:'工具人之神', tier:'normal', color:'#84cc16', badge:'💣',
+    desc:'每回合为全队提供战术压制+2%；己方Force Buy时额外+6%',
+    utilBonus:0.02, forceBonus:0.06
+  },
+  mapControl:{
+    name:'地图宰制', tier:'normal', color:'#22d3ee', badge:'🗺',
+    desc:'第12回合后战力+6%；地图熟练度高时再+4%',
+    lateGameBonus:0.06, mapMasteryBonus:0.04
+  },
+  // ── 经济型 ─────────────────────
+  ecoPunish:{
+    name:'ECO克星', tier:'normal', color:'#f59e0b', badge:'💰',
+    desc:'对方Eco局时个人战力+12%；Force Buy局+6%',
+    vsEcoBonus:0.12, vsForceBonus:0.06
+  },
+  forceBuy:{
+    name:'强起特攻', tier:'normal', color:'#fb923c', badge:'💸',
+    desc:'己方Force Buy时战力惩罚减半（mult升至0.78）；Eco时+8%',
+    forceMultOverride:0.78, ecoBonus:0.08
+  },
+  // ── 特殊型 ─────────────────────
+  snakeEyes:{
+    name:'蛇眼', tier:'normal', color:'#94a3b8', badge:'👁',
+    desc:'Lurker角色时：首杀阶段额外+12%，残局胜率+15%',
+    lurkFirstKill:0.12, lurkClutch:0.15
   }
 };
 
@@ -840,6 +916,17 @@ const SIGNATURE_TRAITS={
     owner:'f0rest', ownerDisplay:'f0rest',
     desc:'【f0rest专属】30岁后能力值永久不受年龄影响，拒绝下滑',
     agelessAfter:30
+  },
+  // ─── 青训专属 ───────────────────────
+  '青训忠魂':{
+    name:'青训忠魂', tier:'normal', color:'#10b981', badge:'🌱',
+    desc:'自家青训提拔的太子。工资要求降低 20%，不会因替补或连败抱怨',
+    loyalty:true, salaryDisc:0.8
+  },
+  '天才少年':{
+    name:'天才少年', tier:'normal', color:'#eab308', badge:'✨',
+    desc:'青训营顶级产物。潜力上限极高，且训练成长速度翻倍',
+    highPot:true, trainBonus:2.0
   }
 };
 
@@ -915,24 +1002,23 @@ const MAP_DISPLAY={Mirage_16:'Mirage',Dust2:'Dust2',Inferno:'Inferno',Nuke:'Nuke
 // 未列出的属性默认为 1.0。
 // > 1.0 代表该图需要更高此属性才能发挥；< 1.0 代表该属性在此图作用被削弱
 const MAP_STYLES = {
-  // 🏜️ 狙击手的天堂
-  'Dust2':      { sniping: 1.15, firepower: 1.05, utility: 0.95 },
-  'Aztec':      { sniping: 1.15, firepower: 1.00, entrying: 0.90 },
-  'Train':      { sniping: 1.10, utility: 1.05,   entrying: 0.95 },
-  // 💣 道具与战术的绞肉机
-  'Inferno':    { utility: 1.15, trading: 1.10,   sniping: 0.92 },
-  'Overpass':   { utility: 1.10, sniping: 1.05,   entrying: 0.95 },
-  'Nuke':       { utility: 1.10, clutching: 1.10, tactics: 1.10 },
-  // 🔫 突破与乱战图
-  'Vertigo':    { entrying: 1.15, trading: 1.10,  sniping: 0.90 },
-  'Cobblestone':{ entrying: 1.10, sniping: 1.05,  utility: 0.95 },
-  'Ancient':    { entrying: 1.10, trading: 1.05,  firepower: 1.05 },
-  'Anubis':     { entrying: 1.05, firepower: 1.05, utility: 1.00 },
-  // ⚖️ 综合平衡/拼抢图
-  'Mirage':     { sniping: 1.05, utility: 1.05,   clutching: 1.05 },
-  'Cache':      { firepower: 1.10, clutching: 1.05, utility: 0.95 },
-  'Tuscan':     { firepower: 1.05, entrying: 1.05, utility: 1.00 },
-  'Mirage_16':  { sniping: 1.05, trading: 1.05,   firepower: 1.05 }
+  // tactics: { rush, slow, aggro, retake } >1 优势, <1 劣势
+  // 核心属性权重控制在 1.05~1.12；战术权重上限控制在 1.18
+  'Inferno': { firepower: 0.95, utility: 1.10, trading: 1.05, tactics: { rush: 0.90, slow: 1.15, aggro: 1.0, retake: 0.88 } },
+  'Dust2': { firepower: 1.10, sniping: 1.12, tactics: { rush: 1.10, slow: 0.94, aggro: 1.10, retake: 0.96 } },
+  'Mirage': { trading: 1.05, tactics: { rush: 1.0, slow: 1.10, aggro: 1.0, retake: 1.0 } },
+  'Nuke': { utility: 1.06, tactics: { rush: 1.08, slow: 0.96, aggro: 1.12, retake: 1.15 } },
+  'Overpass': { utility: 1.08, tactics: { rush: 0.94, slow: 1.08, aggro: 1.10, retake: 1.08 } },
+  'Vertigo': { utility: 1.10, tactics: { rush: 1.15, slow: 0.94, aggro: 1.12, retake: 0.90 } },
+  'Ancient': { firepower: 1.06, tactics: { rush: 1.04, slow: 1.0, aggro: 1.08, retake: 1.04 } },
+  'Anubis': { firepower: 1.06, tactics: { rush: 1.10, slow: 0.96, aggro: 1.0, retake: 1.08 } },
+  // Fallback for others
+  'Train': { sniping: 1.06, utility: 1.03, entrying: 0.97, tactics: { rush: 1.0, slow: 1.0, aggro: 1.0, retake: 1.0 } },
+  'Aztec': { sniping: 1.08, firepower: 1.00, entrying: 0.95, tactics: { rush: 1.0, slow: 1.0, aggro: 1.0, retake: 1.0 } },
+  'Cache': { firepower: 1.06, clutching: 1.03, utility: 0.97, tactics: { rush: 1.0, slow: 1.0, aggro: 1.0, retake: 1.0 } },
+  'Tuscan': { firepower: 1.03, entrying: 1.03, utility: 1.00, tactics: { rush: 1.0, slow: 1.0, aggro: 1.0, retake: 1.0 } },
+  'Cobblestone': { entrying: 1.06, sniping: 1.03, utility: 0.97, tactics: { rush: 1.0, slow: 1.0, aggro: 1.0, retake: 1.0 } },
+  'Mirage_16': { sniping: 1.03, trading: 1.03, firepower: 1.03, tactics: { rush: 1.0, slow: 1.0, aggro: 1.0, retake: 1.0 } }
 };
 
 // --- 🛡️ CS 1.6 时代传奇战队库 (2000 - 2011) ---
@@ -1138,14 +1224,16 @@ const CONFIG = {
         Major_Final: 60000
     },
     SPONSOR_TIERS: [
-      // Tier 1: 必须打进 A-tier (区域职业赛) 才能拿到外设厂赞助
-      { name: "外设品牌赞助 (Peripheral)", minFans: 15000, minTierRequirement: "a-tier", requiredEventCount: 6, baseValue: 120000, exposureMultiplier: 0.8 },
-      // Tier 2: 稳定 A-tier，偶尔冲击 Major 的队伍，获得能量饮料/硬件大厂赞助
-      { name: "硬件/饮料品牌 (Hardware/Drink)", minFans: 60000, minTierRequirement: "a-tier", requiredEventCount: 8, baseValue: 350000, exposureMultiplier: 1.0 },
-      // Tier 3: 世界前十常客，进入 Major 视野的国际大厂赞助
-      { name: "国际一线品牌 (Global Brand)", minFans: 250000, minTierRequirement: "major", requiredEventCount: 10, baseValue: 1000000, exposureMultiplier: 1.2 },
-      // Tier 4: 世界顶尖豪门，头部科技企业或石油资本冠名
-      { name: "头部冠名赞助 (Title Sponsor)", minFans: 1000000, minTierRequirement: "major", requiredEventCount: 12, baseValue: 2800000, exposureMultiplier: 1.5 }
+      // Tier 0: 网吧联赛周边赞助，C-tier 就能拿到，小额但帮助起步
+      { name: "网吧设备赞助 (Gear Starter)", minFans: 500, minTierRequirement: "c-tier", requiredEventCount: 4, baseValue: 20000, exposureMultiplier: 0.5 },
+      // Tier 1: 区域外设厂商，需打进 B-tier 才能获得
+      { name: "外设品牌赞助 (Peripheral)", minFans: 5000, minTierRequirement: "b-tier", requiredEventCount: 6, baseValue: 80000, exposureMultiplier: 0.8 },
+      // Tier 2: 稳定 A-tier 的队伍，获得能量饮料/硬件大厂赞助
+      { name: "硬件/饮料品牌 (Hardware/Drink)", minFans: 30000, minTierRequirement: "a-tier", requiredEventCount: 8, baseValue: 250000, exposureMultiplier: 1.0 },
+      // Tier 3: 世界前十常客，进入 Major 视野
+      { name: "国际一线品牌 (Global Brand)", minFans: 150000, minTierRequirement: "major", requiredEventCount: 10, baseValue: 800000, exposureMultiplier: 1.2 },
+      // Tier 4: 世界顶尖豪门
+      { name: "头部冠名赞助 (Title Sponsor)", minFans: 600000, minTierRequirement: "major", requiredEventCount: 12, baseValue: 2200000, exposureMultiplier: 1.5 }
     ]
 };
 
@@ -1153,6 +1241,15 @@ const rnd =(a,b)=>Math.floor(Math.random()*(b-a+1))+a;
 const pick=arr=>arr[Math.floor(Math.random()*arr.length)];
 const fmtD=d=>d.toISOString().split('T')[0];
 
+
+// 教练周薪计算（分级公式，与mkCoach一致）
+function calcCoachSalary(tactics){
+  if(!tactics) return 50;
+  if(tactics<=50) return Math.floor(30+(tactics-32)*9);
+  if(tactics<=62) return Math.floor(200+Math.pow(tactics-50,2)*5);
+  if(tactics<=72) return Math.floor(800+Math.pow(tactics-62,2)*17);
+  return Math.floor(2500+Math.pow(tactics-72,2)*80);
+}
 // ─── MapUtils ────────────────────────────────────────
 const MapUtils={
   poolForYear(y){
@@ -1294,11 +1391,14 @@ const SponsorManager = {
                     this.activeSponsors.splice(idx, 1);
                 }
             } else {
-                // Breach Condition: Participating in lower tier?
-                // "Or participate in lower tier 3 times"
-                sp.performanceRiskCounter++;
+                // Breach Condition: Participating in lower tier
+                sp.performanceRiskCounter = (sp.performanceRiskCounter || 0) + 1;
+                
+                // 顶级赞助商(Major级)容忍度更低，炸鱼直接+2风险？或者仅警告。
+                // 保持统一3次机会，但给出明确警告
+                UI.toast(`⚠️ [${sp.tierName}] 不满您参加低级别赛事 (违约风险 ${sp.performanceRiskCounter}/3)`, 'warning');
+                
                 if(sp.performanceRiskCounter >= 3) {
-                    // Breach!
                     this.breach(sp, idx);
                 }
             }
@@ -1306,31 +1406,24 @@ const SponsorManager = {
     },
     
     onMatchPerformance(rating) {
-        // "Continuous 3 matches rating < 0.85"
-        // This needs to track per-sponsor risk?
-        // Or global risk?
-        // Let's track on sponsor object.
         this.activeSponsors.forEach((sp, idx) => {
             if(rating < 0.85) {
-                sp.performanceRiskCounter++; // Shared counter for bad performance/bad tier?
-                // Prompt distinguished them: "Continuous 3 match rating < 0.85 OR 3 times lower tier"
-                // Let's split if needed, or just use one risk counter for simplicity.
-                // Using shared counter makes it harder.
-                // Let's assume separate counter for rating streak.
-                if(!sp.lowRatingStreak) sp.lowRatingStreak = 0;
-                sp.lowRatingStreak++;
+                sp.lowRatingStreak = (sp.lowRatingStreak || 0) + 1;
+                UI.toast(`📉 [${sp.tierName}] 近期表现不佳 (评分<0.85 连续 ${sp.lowRatingStreak}/3)`, 'warning');
             } else {
+                if(sp.lowRatingStreak > 0) {
+                    UI.toast(`📈 [${sp.tierName}] 表现回暖，信任恢复`, 'win');
+                }
                 sp.lowRatingStreak = 0;
             }
             
             if(sp.lowRatingStreak >= 3) {
-                // Check Breach Probability
                 const prob = 0.15 * sp.exposureMultiplier;
                 if(Math.random() < prob) {
                     this.breach(sp, idx);
                 } else {
-                    UI.log(`⚠ [${sp.tierName}] 表现不佳，赞助商发出警告！`, 'loss');
-                    sp.lowRatingStreak = 0; // Reset after warning/lucky escape?
+                    UI.log(`⚠ [${sp.tierName}] 忍无可忍，发出最后通牒！`, 'loss');
+                    sp.lowRatingStreak = 2; // 给最后一次机会而不是直接重置
                 }
             }
         });
@@ -1356,17 +1449,42 @@ const World={
     "Race Conditions", "Infinite Loops", "Compilation Errors", "Runtime Exceptions", "Syntax Errors"
   ],
   createAmateurTeam(idx) {
-    const name = this.amateurNames[idx % this.amateurNames.length] + (Math.floor(idx / this.amateurNames.length) > 0 ? " " + (Math.floor(idx / this.amateurNames.length) + 1) : "");
-    const base = rnd(45, 60);
+    const amNames = this.amateurNames;
+    const baseName = amNames[idx % amNames.length];
+    const suffix = Math.floor(idx / amNames.length) > 0 ? " " + (Math.floor(idx / amNames.length) + 1) : "";
+    const name = baseName + suffix;
+    
+    // 生成业余队伍评分：基础分 55~75，模拟不同梯队的业余水平
+    // 让 C-Tier 有一定梯度（弱队 55，强业余 75）
+    const base = 55 + Math.floor(Math.random() * 20); 
+    
     const roster = [];
     ['IGL','Sniper','Entry','Lurker','Rifler'].forEach(role=>{
-        const p=this.mkP(base-5,base+5,true,role,2000);
-        p.teamId=name;
+        // 队员浮动 -5 ~ +5
+        const p = this.mkP(base-5, base+5, true, role, 2000);
+        p.teamId = name;
         this.players.push(p);
         roster.push(p);
     });
-    const initPts = rnd(0,40);
-    return {id:name, name, rating:base, roster, coach:null, isPlayer:false, isReal:false, isAmateur:true, points:initPts, lastRank:999};
+    
+    // 业余队通常没有强力教练
+    const coach = Math.random() < 0.3 ? this.mkCoach(false) : null;
+    
+    // 初始积分较低
+    const initPts = Math.floor(Math.random() * 80);
+    
+    return {
+        id: name, 
+        name, 
+        rating: base, 
+        roster, 
+        coach, 
+        isPlayer: false, 
+        isReal: false, 
+        isAmateur: true, 
+        points: initPts, 
+        lastRank: 999
+    };
   },
   genRandomIdentity(){
     const cfg=pick(NAME_COUNTRIES);
@@ -1394,13 +1512,24 @@ const World={
     }
     // 若 normalTraits 不足2个，按角色补足
     if(myTraits.filter(x=>NORMAL_TRAITS[x]).length<2){
-      const roleDefault={Sniper:'headshot',Rifler:'headshot',Entry:'bigHeart',Lurker:'bigHeart',IGL:'leader'};
+      // 角色默认特质：匹配角色战斗风格（新16特质系统）
+      const roleDefault={
+        Sniper:'headshot',      // 步枪/狙：爆头机器
+        Rifler:'rapidFire',     // 步枪：连点大师
+        Entry:'aggressor',      // 突破：极限侵略
+        Lurker:'snakeEyes',     // 自由人：蛇眼
+        IGL:'leader'            // 指挥：领袖
+      };
       const fallback=roleDefault[cfg.role]||'headshot';
       if(!myTraits.includes(fallback))myTraits.push(fallback);
       if(myTraits.filter(x=>NORMAL_TRAITS[x]).length<2){
-      const extra=NORMAL_TRAIT_KEYS.find(k=>!myTraits.includes(k))||'volatile';
-      myTraits.push(extra);
-    }
+        // 第二特质：基于角色选择互补特质
+        const roleSecond={Sniper:'anchor',Rifler:'coldBlood',Entry:'bigHeart',Lurker:'bigHeart',IGL:'utilityKing'};
+        const secondPref = roleSecond[cfg.role] || 'volatile';
+        const extra = (!myTraits.includes(secondPref)&&NORMAL_TRAITS[secondPref]) ? secondPref : 
+                      (NORMAL_TRAIT_KEYS.find(k=>!myTraits.includes(k))||'volatile');
+        myTraits.push(extra);
+      }
   }
 
   const baseRatingCost = Math.pow(Math.max(1, rating - 40), 3) * 6;
@@ -1421,7 +1550,7 @@ const World={
   const p = {
       id:'real_'+cfg.name+'_'+rnd(1000,9999),
       name:handle+(realName?` (${realName})`:''),
-      role:cfg.role,rating,potential:pot,age,form:1.0,
+      role:cfg.role,rating,potential:pot,age,form:0.92+Math.random()*0.12, // 真实选手初始form 0.92~1.04
       price,
       salary,
       evalStatus: (rarity==='legend') ? 2 : 0,
@@ -1475,7 +1604,7 @@ const World={
         id:'p'+Math.random().toString(36).substr(2,9),
         name:ident.name,
         role:role||pick(['Sniper','Rifler','Entry','Lurker','IGL']),
-        rating,potential:pot,age,form:1.0,
+        rating,potential:pot,age,form:0.88+Math.random()*0.17, // AI form: 0.88~1.05，真实波动
         price,
         salary,
         evalStatus: 0,
@@ -1793,7 +1922,11 @@ init(startYear){
           const p=this.mkRealPlayer(cfg,t.name);
           this.players.push(p);roster.push(p);
         });
-        while(roster.length<5){const p=this.mkP(base-8,base+12,true,null,y);p.teamId=t.name;this.players.push(p);roster.push(p);}
+        while(roster.length<5){
+          const p=this.mkP(base-8,base+12,true,null,y);p.teamId=t.name;
+          if(Math.random()<0.5){const t2=pick(NORMAL_TRAIT_KEYS);if(!p.traits.includes(t2))p.traits.push(t2);}
+          this.players.push(p);roster.push(p);
+        }
         const coach=this.mkCoach(true);
         let initPts = Math.max(0, base-60) * 20;
         initPts = Math.floor(initPts * 1.3 * (0.9 + Math.random()*0.3));
@@ -1811,7 +1944,18 @@ init(startYear){
       const name=aiPool[idx++];
       const base=65+rnd(0,25),roster=[];
       ['IGL','Sniper','Entry','Lurker','Rifler'].forEach(role=>{
-        const p=this.mkP(base-8,base+12,true,role,y);p.teamId=name;this.players.push(p);roster.push(p);
+        const p=this.mkP(base-8,base+12,true,role,y);
+        p.teamId=name;
+        // AI选手也应该有特质，增加多样性
+        if(Math.random()<0.6&&NORMAL_TRAIT_KEYS.length>0){
+          const t=pick(NORMAL_TRAIT_KEYS);
+          if(!p.traits.includes(t))p.traits.push(t);
+        }
+        if(Math.random()<0.25&&NORMAL_TRAIT_KEYS.length>1){
+          const t2=pick(NORMAL_TRAIT_KEYS.filter(k=>!p.traits.includes(k)));
+          if(t2)p.traits.push(t2);
+        }
+        this.players.push(p);roster.push(p);
       });
       const coach=this.mkCoach(true);
       let initPts = Math.max(0, base-60) * 12;
@@ -1933,7 +2077,15 @@ init(startYear){
     // ── 特质分配（三级）
     const myTraits=[];
     if(ai){
-      // AI 队员无特质（简化逻辑，AI队伍不需要特质加成）
+      // AI 队员也有概率获得特质（比玩家低，约 10%~15%）
+      if(Math.random()<0.12){
+          myTraits.push(pick(NORMAL_TRAIT_KEYS));
+      }
+      // 极小概率双特质 (2%)
+      if(myTraits.length > 0 && Math.random()<0.02){
+          const pool=NORMAL_TRAIT_KEYS.filter(k=>!myTraits.includes(k));
+          if(pool.length) myTraits.push(pick(pool));
+      }
     }else if(isRegenLegend){
       // B. 通用传奇特质：1个传奇 + 2个常规（去重）
       myTraits.push(pick(GENERIC_LEGEND_KEYS));
@@ -1976,14 +2128,53 @@ init(startYear){
     return obj;
   },
   mkCoach(ai=false){
-    const tactics=rnd(ai?50:45,ai?85:80),yr=rnd(1995,2010);
+    // AI教练：固定中高档
+    if(ai){
+      const tactics=rnd(50,85),yr=rnd(1995,2010);
+      return{
+        id:'ac_'+rnd(10000,99999),
+        name:pick(COACH_NAMES),
+        tactics,age:rnd(28,50),maps:MapUtils.genPlayerMaps(yr),
+        price: Math.floor(Math.pow(Math.max(1,tactics-40),2.2)*12+rnd(0,3000)),
+        salary: Math.floor(Math.pow(Math.max(1,tactics-40),2)*6),
+        teamId:null,isAI:true
+      };
+    }
+    // 市场教练：根据玩家排名分档，早期只出现C级弱教练
+    const rank=(typeof Game!=='undefined'?Game.rank:null)||999;
+    // rank>150(网吧C-tier): tactics 32-50  grade C
+    // rank 80-150(B-tier):  tactics 45-62  grade B
+    // rank 30-80(A-tier):   tactics 58-72  grade A
+    // rank<30(Major级):     tactics 68-82  grade S
+    let tacMin,tacMax,grade,gradeColor;
+    if(rank>150){tacMin=32;tacMax=50;grade='C 级';gradeColor='#9ca3af';}
+    else if(rank>80){tacMin=45;tacMax=62;grade='B 级';gradeColor='#10b981';}
+    else if(rank>30){tacMin=58;tacMax=72;grade='A 级';gradeColor='var(--blue)';}
+    else{tacMin=68;tacMax=82;grade='S 级';gradeColor='var(--gold)';}
+
+    const tactics=rnd(tacMin,tacMax);
+    const yr=rnd(1995,2010);
+
+    // 签约费分段：C级$500-$6k，B级$8k-$35k，A级$40k-$120k，S级$100k-$280k
+    let price;
+    if(tactics<=50) price=Math.floor(500+(tactics-32)*300+rnd(0,1000));
+    else if(tactics<=62) price=Math.floor(8000+Math.pow(tactics-50,2)*200+rnd(0,3000));
+    else if(tactics<=72) price=Math.floor(40000+Math.pow(tactics-62,2)*800+rnd(0,8000));
+    else price=Math.floor(100000+Math.pow(tactics-72,2.2)*3000+rnd(0,20000));
+
+    // 周薪分段：C级$30-200，B级$200-800，A级$800-2500，S级$2500-6000
+    let salary;
+    if(tactics<=50) salary=Math.floor(30+(tactics-32)*9+rnd(0,30));
+    else if(tactics<=62) salary=Math.floor(200+Math.pow(tactics-50,2)*5+rnd(0,50));
+    else if(tactics<=72) salary=Math.floor(800+Math.pow(tactics-62,2)*17+rnd(0,100));
+    else salary=Math.floor(2500+Math.pow(tactics-72,2)*80+rnd(0,300));
+
     return{
-      id:(ai?'ac_':'c_')+rnd(10000,99999),
-      name:pick(COACH_NAMES)+(ai?'':'-'+rnd(1,9)),
+      id:'c_'+rnd(10000,99999),
+      name:pick(COACH_NAMES)+'-'+rnd(1,9),
       tactics,age:rnd(28,50),maps:MapUtils.genPlayerMaps(yr),
-      price: Math.floor(Math.pow(Math.max(1, tactics - 30), 2.5) * 15 + rnd(0, 2000)),
-      salary: Math.floor(Math.pow(Math.max(1, tactics - 40), 2) * 8),
-      teamId:null,isAI:ai
+      price,salary,grade,gradeColor,
+      teamId:null,isAI:false
     };
   }
 };
@@ -1992,8 +2183,8 @@ init(startYear){
 const Market={
   pList:[],cList:[],currentTab:'players',
   refresh(free=false){
-    if(!free&&Game.money<500)return UI.toast('资金不足！刷新需要 $500');
-    if(!free)Game.money-=500;
+    if(!free&&Game.money<200)return UI.toast('资金不足！刷新需要 $200');
+    if(!free)Game.money-=200;
     this.pList=[];this.cList=[];
 
     // 根据玩家世界排名和粉丝数计算市场质量
@@ -2026,10 +2217,10 @@ const Market={
     document.getElementById('market-coaches').classList.toggle('hidden',t!=='coaches');
   },
   startEval(id) {
-      if (Game.money < 5000) return UI.toast('资金不足！安排试训评估需要 $5,000');
+      if (Game.money < 1500) return UI.toast('资金不足！安排试训评估需要 $1,500');
       if (Game.evalQueue.some(x => x.id === id)) return UI.toast('该选手正在试训中！');
       
-      Game.money -= 5000;
+      Game.money -= 1500;
       Game.evalQueue.push({ id, daysLeft: 3 }); // 3天试训
       UI.toast(`📊 已安排试训，预计 3 天后出具报告。`);
       UI.refresh(); this.renderAll();
@@ -2130,16 +2321,23 @@ const Market={
   },
   renderCoaches(){
     const el=document.getElementById('market-coaches');if(!el)return;
-    el.innerHTML=this.cList.map(c=>`
-      <div class="card coach-card">
-        <span class="rbadge" style="background:var(--blue)">教练</span>
+    el.innerHTML=this.cList.map(c=>{
+      const gc=c.gradeColor||'var(--blue)';
+      const gl=c.grade||'—';
+      const canAfford=Game.money>=c.price;
+      return`
+      <div class="card coach-card" style="border-color:${gc}22">
+        <span class="rbadge" style="background:${gc};color:#000">教练</span>
+        <div style="position:absolute;top:10px;right:52px;font-size:9px;font-weight:700;padding:2px 6px;border-radius:3px;background:${gc}22;border:1px solid ${gc};color:${gc}">${gl}</div>
         <div class="cname">${c.name} <span style="font-size:10px;color:var(--dim)">(${c.age}岁)</span></div>
-        <div class="cstat"><span>战术水平</span><b style="color:var(--blue)">${c.tactics}</b></div>
+        <div class="cstat"><span>战术水平</span><b style="color:${gc}">${c.tactics}</b></div>
         <div class="cstat"><span>BP精准度</span><b>${Math.round(40+c.tactics*.5)}%</b></div>
-        <div class="cstat"><span>签约费</span><b style="color:#86efac">$${c.price.toLocaleString()}</b></div>
-        <div class="mapbars">${(c.maps||[]).slice(0,2).map(m=>`<div class="mapbar-row"><span class="mapbar-name">${MapUtils.display(m.map)}</span><div class="mapbar-bg"><div class="mapbar-fill" style="width:${m.str}%;background:var(--blue)"></div></div><span style="font-size:10px;color:var(--dim)">${m.str}</span></div>`).join('')}</div>
-        <button class="btn full" onclick="Game.buyC('${c.id}')">签约教练</button>
-      </div>`).join('');
+        <div class="cstat"><span>签约费</span><b style="color:${canAfford?'#86efac':'var(--loss)'}">$${c.price.toLocaleString()}</b></div>
+        <div class="cstat"><span>周薪</span><b style="color:var(--loss)">$${(c.salary||0).toLocaleString()}/周</b></div>
+        <div class="mapbars">${(c.maps||[]).slice(0,2).map(m=>`<div class="mapbar-row"><span class="mapbar-name">${MapUtils.display(m.map)}</span><div class="mapbar-bg"><div class="mapbar-fill" style="width:${m.str}%;background:${gc}"></div></div><span style="font-size:10px;color:var(--dim)">${m.str}</span></div>`).join('')}</div>
+        <button class="btn full" onclick="Game.buyC('${c.id}')" ${canAfford?'':'disabled style="opacity:.4"'}>签约教练</button>
+      </div>`;
+    }).join('');
   }
 };
 
@@ -2148,7 +2346,25 @@ const SaveManager={
   key:'cs_legends_save_v6',
   save(){
     try{
-      const data={date:Game.date.toISOString(),money:Game.money,fans:Game.fans,roster:Game.roster,coach:Game.coach,trophies:Game.trophies||[],news:Game.news||[],bankruptcyDays:Game.bankruptcyDays||0};
+      const teamsMeta=(World.teams||[]).map(t=>({id:t.id,points:t.points||0,rank:t.rank||999,lastRank:t.lastRank||999,totalFans:t.totalFans||0,brandFans:t.brandFans||0}));
+      const data={
+        date:Game.date.toISOString(),
+        money:Game.money,
+        fans:Game.fans,
+        roster:Game.roster,
+        coach:Game.coach,
+        trophies:Game.trophies||[],
+        news:Game.news||[],
+        bankruptcyDays:Game.bankruptcyDays||0,
+        gamePoints:Game.points||0,
+        gameRank:Game.rank||999,
+        gameLastRank:Game.lastRank||999,
+        matchHistory:Game.matchHistory||[],
+        sTierAppearances:Game.sTierAppearances||0,
+        majorAppearances:Game.majorAppearances||0,
+        facilities:Game.facilities||{training:1,medical:1,media:1,youth:1},
+        teamsMeta
+      };
       localStorage.setItem(this.key,JSON.stringify(data));
       UI.toast('💾 游戏已保存');
     }catch(e){console.error(e);UI.toast('❌ 保存失败');}
@@ -2160,6 +2376,13 @@ const SaveManager={
       Game.date=new Date(data.date);Game.money=data.money;Game.fans=data.fans;
       Game.trophies=data.trophies||[];Game.news=data.news||[];
       Game.bankruptcyDays=data.bankruptcyDays||0;
+      Game.points=data.gamePoints||Game.points;
+      Game.rank=data.gameRank||Game.rank;
+      Game.lastRank=data.gameLastRank||Game.lastRank;
+      Game.matchHistory=data.matchHistory||[];
+      Game.sTierAppearances=data.sTierAppearances||0;
+      Game.majorAppearances=data.majorAppearances||0;
+      Game.facilities=data.facilities||{training:1,medical:1,media:1,youth:1};
       Game.roster=data.roster||[];
       Game.roster.forEach(p=>{
         if(!World.players.find(x=>x.id===p.id))World.players.push(p);
@@ -2178,6 +2401,18 @@ const SaveManager={
       World.teams.forEach(t => {
           if(!t.totalFans) World.updateTeamFans(t, { tier: 'none', placement: 'none' });
       });
+      if(data.teamsMeta&&Array.isArray(data.teamsMeta)){
+        data.teamsMeta.forEach(meta=>{
+          const t=World.teams.find(x=>x.id===meta.id);
+          if(t){
+            t.points=meta.points||t.points;
+            t.rank=meta.rank||t.rank;
+            t.lastRank=meta.lastRank||t.lastRank;
+            t.totalFans=meta.totalFans||t.totalFans;
+            t.brandFans=meta.brandFans||t.brandFans;
+          }
+        });
+      }
       // Sync Player Fans if loaded
       if (Game.fans === 100 && Game.roster.length > 0) { // Default or legacy
           World.updateTeamFans({ isPlayer: true, roster: Game.roster, brandFans: 1000 }, { tier: 'none', placement: 'none' });
@@ -2191,7 +2426,7 @@ const SaveManager={
       }
       
       Game.coach=data.coach||null;
-      if(Game.coach&&Game.coach.salary===undefined)Game.coach.salary=Math.floor(Game.coach.tactics*Game.coach.tactics/10);
+      if(Game.coach&&Game.coach.salary===undefined)Game.coach.salary=calcCoachSalary(Game.coach.tactics||50);
       UI.toast('📂 存档已读取');return true;
     }catch(e){console.error(e);UI.toast('❌ 存档损坏');return false;}
   },
@@ -2200,8 +2435,9 @@ const SaveManager={
 
 // ─── Game ────────────────────────────────────────────
 const Game={
-  date:new Date('2000-01-01'),money:300000,fans:100,
-  initialCapital: 300000, firstMatchMonth: 3, // Default, will be updated in init
+  date:new Date('2000-01-01'),money:30000,fans:10,
+  initialCapital: 30000, firstMatchMonth: 0,
+  facilities: { training: 1, medical: 1, media: 1, youth: 1 },
   roster:[],coach:null,trophies:[],news:[],
   chem:35,fatigue:0,training:'rest', scrimCD: 0,
   points:0, lastRank:999, rank:999,
@@ -2222,16 +2458,25 @@ const Game={
     return this.calculateOperatingCost() / 4;
   },
   calculateOperatingCost() {
-      // 1. Base Cost
-      // max(5000, initialCapital * 0.01)
-      const baseCost = Math.max(5000, this.initialCapital * 0.01);
+      // 1. Base Cost (俱乐部日常运营：场地租金、水电网费、基础开销)
+      // 固定 $3,000/月 ≈ $750/周，小俱乐部的现实压力
+      const baseCost = 3000;
       
       // 2. Salary Sum
       const salarySum = this.roster.reduce((a,b)=>a+(b.salary||Math.floor(b.rating*b.rating/10)),0) + 
-                        (this.coach?(this.coach.salary||Math.floor(this.coach.tactics*this.coach.tactics/10)):0);
+                        (this.coach?(this.coach.salary||calcCoachSalary(this.coach.tactics||50)):0);
       
-      // 3. Facility Cost (Simplified: 0 for now or fixed overhead)
-      const facilityCost = 0; 
+      // 3. Facility Cost
+      let facilityCost = 0;
+      if (this.facilities) {
+          const { training, medical, media, youth } = this.facilities;
+          // Facility Cost (Level 1=100/week, Level 10=10000/week)
+          // 100 * level^2 for each facility
+          facilityCost += Math.pow(training, 2) * 100;
+          facilityCost += Math.pow(medical, 2) * 100;
+          facilityCost += Math.pow(media, 2) * 100;
+          facilityCost += Math.pow(youth, 2) * 100;
+      } 
       
       // 4. Marketing Cost
       const marketingCost = this.fans * 0.05;
@@ -2239,20 +2484,17 @@ const Game={
       // 5. Scaling Cost
       const scalingCost = Math.pow(this.fans / 10000, 2) * 12;
       
-      // 6. Luxury Tax
+      // 6. Luxury Tax (高薪奢侈税，门槛提高到60000以便早期成长)
       let luxuryTax = 0;
-      if (salarySum > 120000) {
-          luxuryTax = (salarySum - 120000) * 1.5;
+      if (salarySum > 60000) {
+          luxuryTax = (salarySum - 60000) * 1.5;
       }
       
       let total = baseCost + salarySum + facilityCost + marketingCost + scalingCost + luxuryTax;
       
-      // Initial Buffer Mechanism
-      // If current month < firstMatchMonth (e.g. 3, which is April? No, month is 0-indexed. March is 2. 
-      // User said: "In year 2000, first match is Month 3 or 4". 
-      // Cal.genYear logic: "if (y === 2000 && m < 3) continue;" -> First match in m=3 (April).
-      // So if this.date.getMonth() < 3, apply buffer.
-      if (this.date.getFullYear() === 2000 && this.date.getMonth() < this.firstMatchMonth) {
+      // 开局缓冲：2000年1月（等待首场比赛期间）运营成本减半
+      // 首场比赛在1月24日，玩家前3周学习游戏机制，1月减半让压力更小
+      if (this.date.getFullYear() === 2000 && this.date.getMonth() === 0) {
           total *= 0.5;
       }
       
@@ -2286,9 +2528,20 @@ const Game={
       }
     }else{
       ['IGL','Sniper','Entry','Rifler','Lurker'].forEach(role=>{
-        const p=World.mkP(48,55,false,role,2000);p.teamId='PLAYER';p.form=0.95;World.players.push(p);this.roster.push(p);
+        // 初始阵容：强制 ai=true 跳过 RegenLegend 检测，再手动补市场属性
+        const p=World.mkP(43,50,true,role,2000);
+        p.teamId='PLAYER';
+        p.form=0.93+Math.random()*0.10;
+        p.rarity='common';
+        p.isRegenLegend=false;
+        // 补充市场选手需要的字段
+        p.evalStatus=2; // 自家队员直接可见
+        if(!p.id.startsWith('p'))p.id='p'+p.id; // 统一ID前缀
+        World.players.push(p);this.roster.push(p);
       });
-      Cal.genYear(2000);this.money=this.initialCapital;this.pushNews('俱乐部成立，获得天使投资人 30 万的启动资金！证明自己吧！');
+      Cal.genYear(2000);this.money=this.initialCapital;
+      this.pushNews('俱乐部成立，众筹凑了区区 3 万启动资金，兄弟们挤在网吧里备战，证明自己吧！');
+      this.pushNews('📅 1月24日——<b style="color:#ffd700">新手试炼赛</b>即将开幕！这是你们第一次公开亮相，认真备战吧！');
     }
     // 免费初始化市场（不扣钱）
     Market.refresh(true);
@@ -2343,25 +2596,41 @@ const Game={
     // 训练系统重构
     const coachTactics = this.coach ? this.coach.tactics : 50;
     const hasIron = this.roster.some(p => (p.traits||[]).includes('iron'));
-    const fatigueResist = hasIron ? 0.5 : 1;
+    
+    // Facility Buffs (Nerfed: "Icing on the cake")
+    const { training, medical, media } = this.facilities || { training: 1, medical: 1, media: 1 };
+    // Training: +3% efficiency per level (Max +27%)
+    const trainBuff = 1 + (training - 1) * 0.03;
+    // Medical: -2% fatigue gain per level (Max -18%)
+    const fatigueFactor = Math.max(0.5, 1 - (medical - 1) * 0.02); 
+    // Iron trait stacks multiplicatively
+    const fatigueResist = (hasIron ? 0.5 : 1) * fatigueFactor;
+
+    // Media Income (Daily trickle)
+    // Level 1: $20, Level 10: $200. Tiny bonus.
+    this.money += Math.floor(media * 20);
 
     switch(this.training) {
         case 'rest':
-            this.fatigue = Math.max(0, this.fatigue - 8);
+            // Medical also boosts recovery: +5% per level
+            this.fatigue = Math.max(0, this.fatigue - 8 * (1 + (medical-1)*0.05));
             this.roster.forEach(p => p.form = Math.min(1.2, p.form + 0.02));
             break;
         case 'fpl':
             this.fatigue += 3 * fatigueResist;
             this.roster.forEach(p => {
-                if(p.rating < p.potential && Math.random() < 0.03) p.rating++;
-                if(Math.random() < 0.1) p.form = Math.max(0.6, p.form - 0.08); // 遇到搞子破防
+                // Training facility boosts growth chance slightly
+                // Base 3% -> Max ~3.8%
+                if(p.rating < p.potential && Math.random() < 0.03 * trainBuff) p.rating++;
+                if(Math.random() < 0.1) p.form = Math.max(0.6, p.form - 0.08); 
                 else p.form = Math.min(1.3, p.form + 0.01);
             });
             break;
         case 'utility':
             this.fatigue += 2 * fatigueResist;
             // 提升地图熟练度
-            if(Math.random() < 0.3 && this.roster.length > 0) {
+            // Base 30% -> Max ~38%
+            if(Math.random() < 0.3 * trainBuff && this.roster.length > 0) {
                 const rp = pick(this.roster);
                 if(rp.maps && rp.maps.length > 0) {
                     const rm = pick(rp.maps);
@@ -2374,10 +2643,11 @@ const Game={
             if (this.coach) {
                 // 复合公式：(教练水平*0.7 + 队员平均Utility*0.3)
                 const avgIQ = this.roster.reduce((s, p) => s + (p.hltv ? p.hltv.utility : 60), 0) / Math.max(1, this.roster.length);
-                const theoryEff = (this.coach.tactics * 0.7 + avgIQ * 0.3) * 0.008;
+                // Theory efficiency boosted by training facility
+                const theoryEff = (this.coach.tactics * 0.7 + avgIQ * 0.3) * 0.008 * trainBuff;
                 this.chem = Math.min(this.chemCap(), this.chem + theoryEff);
             } else {
-                this.training = 'rest'; // 无教练防御性回退
+                this.training = 'rest'; 
             }
             break;
         case 'team': // 战术合练
@@ -2385,7 +2655,8 @@ const Game={
             let mult = this.coach ? 1 + coachTactics / 200 : 1;
             // "独裁战术"特质加成
             if(this.roster.some(p => (p.traits||[]).includes('独裁战术'))) mult *= 2.0;
-            this.chem = Math.min(this.chemCap(), this.chem + mult * 0.3);
+            // Training facility boosts chem gain
+            this.chem = Math.min(this.chemCap(), this.chem + mult * 0.3 * trainBuff);
             break;
     }
     if(this.fatigue > 80) this.roster.forEach(p => p.form = Math.max(0.7, p.form - 0.05));
@@ -2705,12 +2976,138 @@ const Game={
   }
 };
 
+// ─── Facilities ──────────────────────────────────────
+const Facilities = {
+    // Configuration
+    config: {
+        training: { name: '训练基地', desc: '提升训练效果(+3%/级)，增加选手成长概率' },
+        medical: { name: '医疗中心', desc: '降低疲劳积累(-2%/级)，加快体能恢复' },
+        media: { name: '媒体工作室', desc: '增加每日额外收入(+$20/级)，提升粉丝增长' },
+        youth: { name: '青训营', desc: '解锁更高潜力的年轻选手，增加特质概率' }
+    },
+    
+    upgrade(type) {
+        if (!Game.facilities) Game.facilities = { training: 1, medical: 1, media: 1, youth: 1 };
+        const lv = Game.facilities[type];
+        if (lv >= 10) return UI.toast('已达到最高等级！');
+        
+        // Cost: Lv1→2: $8k, Lv2→3: $12k, 以此类推，后期指数增长
+        // 公式：8000 * 1.6^(lv-1)
+        const cost = Math.floor(8000 * Math.pow(1.6, lv - 1));
+        
+        if (Game.money < cost) return UI.toast(`资金不足！升级需要 $${cost.toLocaleString()}`);
+        
+        Game.money -= cost;
+        Game.facilities[type]++;
+        UI.toast(`✅ ${this.config[type].name} 升级至 Lv.${Game.facilities[type]}！`);
+        this.render();
+        UI.refresh();
+    },
+    
+    promoteYouth() {
+        if (!Game.facilities) Game.facilities = { training: 1, medical: 1, media: 1, youth: 1 };
+        const lv = Game.facilities.youth;
+        // Cost to promote: 5000
+        const cost = 5000;
+        if (Game.money < cost) return UI.toast(`资金不足！提拔青训需要 $${cost.toLocaleString()}`);
+        
+        // 检查阵容空位
+        if (Game.roster.length >= 6) return UI.toast('阵容已满，请先清理空位！');
+
+        Game.money -= cost;
+        
+        // Generate Player based on Youth Level
+        // Base Rating: 40 + (lv * 3) + rand(-5, 10) -> Max ~80
+        const minR = 40 + lv * 3;
+        const maxR = minR + 10;
+        // Use current year
+        const yr = Game.date.getFullYear();
+        const p = World.mkP(minR, maxR, false, undefined, yr);
+        
+        // Apply "Homegrown" traits
+        const traits = p.traits || [];
+        // Loyalty: 20% + 2% per level
+        if (Math.random() < 0.2 + lv * 0.02) {
+            traits.push('青训忠魂'); 
+        }
+        // Prodigy: 5% + 1% per level
+        if (Math.random() < 0.05 + lv * 0.01) {
+            traits.push('天才少年'); 
+        }
+        p.traits = [...new Set(traits)];
+        p.isYouth = true; // Mark as homegrown
+        
+        Game.roster.push(p);
+        p.teamId = 'PLAYER';
+        UI.toast(`✨ 提拔了青训选手 ${p.name}`);
+        
+        this.render();
+        UI.refresh();
+    },
+
+    render() {
+        const el = document.getElementById('facilities-list');
+        if (!el) return;
+        
+        if (!Game.facilities) Game.facilities = { training: 1, medical: 1, media: 1, youth: 1 };
+        
+        let html = '';
+        // 遍历配置生成升级卡片
+        for (const [key, cfg] of Object.entries(this.config)) {
+            const lv = Game.facilities[key];
+            const cost = Math.floor(20000 * Math.pow(1.5, lv - 1));
+            const nextCost = lv >= 10 ? '-' : `$${cost.toLocaleString()}`;
+            const btnClass = (lv < 10 && Game.money >= cost) ? '' : 'disabled';
+            const btnText = lv >= 10 ? '已满级' : `升级 (${nextCost})`;
+            const btnAction = lv < 10 ? `onclick="Facilities.upgrade('${key}')"` : '';
+            
+            // Maintenance Cost
+            const maint = Math.pow(lv, 2) * 300;
+
+            html += `
+            <div class="card" style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;padding:12px">
+                <div style="flex:1">
+                    <div style="font-weight:bold;font-size:14px;display:flex;align-items:center;gap:8px">
+                        ${cfg.name} <span style="background:var(--blue);padding:2px 6px;border-radius:4px;font-size:10px;color:#fff">Lv.${lv}</span>
+                    </div>
+                    <div style="font-size:11px;color:var(--dim);margin-top:4px">${cfg.desc}</div>
+                    <div style="font-size:11px;color:#fca5a5;margin-top:4px">
+                        维护费: $${maint.toLocaleString()}/周
+                    </div>
+                </div>
+                <div style="margin-left:12px">
+                    <button class="btn ${btnClass}" ${btnAction} style="min-width:80px;font-size:11px">${btnText}</button>
+                </div>
+            </div>`;
+        }
+        
+        // Youth Promotion Section
+        const youthLv = Game.facilities.youth;
+        const promCost = 5000;
+        const promClass = Game.money >= promCost ? 'full' : 'full disabled';
+        
+        html += `
+        <div class="card" style="margin-top:20px;border:1px dashed var(--blue);padding:15px">
+            <div style="font-weight:bold;margin-bottom:8px;color:var(--blue)">🔮 青训选拔中心</div>
+            <div style="font-size:12px;color:var(--dim);margin-bottom:12px;line-height:1.5">
+                消耗 $5,000 从青训营中提拔一名年轻选手。<br>
+                当前青训等级 Lv.${youthLv}，等级越高，出现高潜力、特殊特质选手的概率越高。
+            </div>
+            <button class="btn ${promClass}" onclick="Facilities.promoteYouth()">立即提拔新人 ($5,000)</button>
+        </div>
+        `;
+        
+        el.innerHTML = html;
+    }
+};
+
 // ─── Calendar ────────────────────────────────────────
 const Cal={
   evs:[],
   tierFormats:{
     'major': {groupBo:1,knockoutBo:3,finalBo:5,teams:16},
     'a-tier':{groupBo:1,knockoutBo:3,finalBo:3,teams:16},
+    'b-tier':{groupBo:1,knockoutBo:1,finalBo:3,teams:12},
     'c-tier':{groupBo:1,knockoutBo:1,finalBo:1,teams:8}
   },
   genYear(y){
@@ -2750,17 +3147,35 @@ const Cal={
 
     // 3. 填充 C-Tier 网吧赛 (每月确保有比赛)
     for(let m=0; m<12; m++) {
-        // Year 2000: Skip first 3 months (Jan-Mar) to allow development
-        if (y === 2000 && m < 3) continue;
+        // 开局年：1月底安排"新手试炼赛"作为第一场正式比赛（约等待3~4周）
+        if (y === 2000 && m === 0) {
+            this.add(y, 0, 24, '新手试炼赛', 'c-tier', 'SE', 8000, 8, 'debut');
+            continue;
+        }
+        // 2000年2月空出（让玩家消化首战结果，准备3月）
+        if (y === 2000 && m === 1) continue;
 
         if(!this.evs.some(e => e.date.getMonth() === m)) {
             const diff = (m%3===0)?'easy':((m%3===1)?'mid':'hard');
-            const name = diff==='easy'?`CCT 新人杯 #${m+1}`:diff==='mid'?`CCT 晋级赛 #${m+1}`:`CCT 精英赛 #${m+1}`;
-            this.add(y, m, rnd(5, 25), name, 'c-tier', 'SE', 10000, 8, diff);
+            const name = diff==='easy'?`网吧联赛 #${m+1}`:diff==='mid'?`CCT 晋级赛 #${m+1}`:`CCT 精英赛 #${m+1}`;
+            // 奖金：easy $8k, mid $12k, hard $18k —— 冠军勉强覆盖一个月开销
+            const cPrize = diff==='easy'?8000:diff==='mid'?12000:18000;
+            this.add(y, m, rnd(5, 25), name, 'c-tier', 'SE', cPrize, 8, diff);
         }
     }
 
-    this.evs.sort((a,b)=>a.date-b.date);
+    // 4. 填充 B-Tier 区域赛（每季度一场，作为从网吧赛到A-tier的过渡）
+    // B-tier 奖金 $40k-$80k，是进入职业圈的关键一步
+    const bTierMonths = [2, 5, 8, 10]; // 3月、6月、9月、11月
+    bTierMonths.forEach(m => {
+        if(!this.evs.some(e => e.date.getMonth() === m)) {
+            const bNames = ['ESL 开放资格赛','ESEA 锦标赛','CCT 区域职业赛','ESL Pro 资格赛'];
+            const bPrize = pick([40000, 50000, 60000, 80000]);
+            this.add(y, m, rnd(8, 20), pick(bNames), 'b-tier', 'SE', bPrize, 12, 'mid');
+        }
+    });
+
+
     UI.renderCal();
   },
   add(y,mo,d,name,tier,bracket='SE',prize=50000,teams=16,difficulty=null){
@@ -2768,6 +3183,7 @@ const Cal={
     let minRank = 999;
     if(tier === 'major') minRank = teams + 8; // Major前N名+替补
     else if(tier === 'a-tier') minRank = 40;
+    else if(tier === 'b-tier') minRank = 100; // B-tier 需要排名前100才能参加
     else {
         if(difficulty==='hard') minRank = 120;
         else if(difficulty==='mid') minRank = 150;
@@ -2775,9 +3191,10 @@ const Cal={
     }
     
     // 赛事积分总池 (Base Points)
-    // S-Tier: 1200, A-Tier: 600, C-Tier: 60
+    // Major: 1200, A-Tier: 600, B-Tier: 200, C-Tier: 60
     const basePoints = tier === 'major' ? 1200 : 
-                       tier === 'a-tier' ? 600 : 60;
+                       tier === 'a-tier' ? 600 :
+                       tier === 'b-tier' ? 200 : 60;
 
     this.evs.push({
         id:'t'+rnd(1000,9999),
@@ -2813,16 +3230,53 @@ const Cal={
       if(pool.length < count-1) pool = allTeams;
       return pool.sort(()=>Math.random()-.5).slice(0, count-1);
 
+    } else if(tier==='b-tier'){
+      // B-Tier：中等强度，比C-tier强但明显弱于A-tier
+      // 对手战力约在玩家 ±10 范围，排除顶级真实强队(>85)
+      const bPool = allTeams.filter(t => !t.isPlayer && t.rating < 85);
+      const bInRange = bPool.filter(t => Math.abs(t.rating - playerPow) <= 12);
+      let pool = bInRange.length >= count-1 ? bInRange : bPool.filter(t => Math.abs(t.rating - playerPow) <= 20);
+      if(pool.length < count-1) pool = bPool;
+      if(pool.length < count-1) pool = allTeams.filter(t => !t.isPlayer);
+      return pool.sort(()=>Math.random()-.5).slice(0, count-1);
+
     } else {
-      // C-Tier：根据 difficulty 对玩家战力做偏移，避免碾压局
+      // ── debut：首战保护，对手 rating 硬锁在 38~50，确保玩家有机会打进决赛 ──
+      if(difficulty === 'debut'){
+        // 专门生成弱业余队填充首战（临时对象，不进 World.teams）
+        const debutOpps = [];
+        for(let i=0;i<count-1;i++){
+          const r = rnd(38,50);
+          debutOpps.push({
+            id:'debut_opp_'+i, name:'Network Cafe #'+(i+1),
+            rating:r, roster:[], coach:null,
+            isPlayer:false, isReal:false, isAmateur:true, points:0
+          });
+        }
+        return debutOpps;
+      }
+
       // easy → 对手比玩家弱 5~10；mid → 接近；hard → 强 5~10
-      const offset = difficulty==='easy' ? -8 : difficulty==='hard' ? 8 : 0;
+      let offset;
+      if(difficulty === 'easy') offset = -8;
+      else if(difficulty === 'hard') offset = 8;
+      else offset = 0;
+      
       const center = playerPow + offset;
-      // 优先选 center ±12 范围内的队伍
-      let pool = allTeams.filter(t => Math.abs(t.rating - center) <= 12);
-      if(pool.length < count-1) pool = allTeams.filter(t => Math.abs(t.rating - center) <= 20);
-      if(pool.length < count-1) pool = allTeams.slice(60);
-      if(pool.length < count-1) pool = allTeams;
+      
+      // C-Tier 候选池：排除顶级真实强队
+      let candidatePool = allTeams.filter(t => !t.isPlayer);
+      if (difficulty === 'easy') {
+          candidatePool = candidatePool.filter(t => !t.isReal || t.rating < 70);
+      } else {
+          candidatePool = candidatePool.filter(t => t.rating < 82);
+      }
+      
+      let pool = candidatePool.filter(t => Math.abs(t.rating - center) <= 12);
+      if(pool.length < count-1) pool = candidatePool.filter(t => Math.abs(t.rating - center) <= 20);
+      if(pool.length < count-1) pool = candidatePool;
+      if(pool.length < count-1) pool = allTeams.filter(t => !t.isPlayer).reverse();
+
       return pool.sort(()=>Math.random()-.5).slice(0, count-1);
     }
   },
@@ -3150,7 +3604,10 @@ class SingleEliminationStrategy extends TournamentStrategy {
     resolveMatch(match, winner) {
         match.winner = winner;
         const loser = match.t1 === winner ? match.t2 : match.t1;
-        if (loser) loser.active = false;
+        if (loser) {
+            loser.active = false;
+            loser.eliminated = true; // 修复：标记淘汰，确保 Tour 识别
+        }
         if (this.matches.every(m => m.winner)) {
             this.roundIdx++;
             this.generateRound();
@@ -3287,6 +3744,16 @@ class GroupSingleEliminationStrategy extends TournamentStrategy {
              }
         } else {
             this.seStrategy.resolveMatch(match, winner);
+            // 修复：同步 seStrategy 的淘汰状态到当前 teams
+            const loser = match.t1 === winner ? match.t2 : match.t1;
+            if(loser){
+               const myLoser = this.teams.find(t=>t.id===loser.id);
+               if(myLoser){
+                 myLoser.active = loser.active;
+                 myLoser.eliminated = loser.eliminated;
+               }
+            }
+
             if(this.seStrategy.matches.every(m => m.winner)) {
                  this.seStrategy.generateRound(); // Next SE round
                  this.matches = this.seStrategy.matches;
@@ -3409,8 +3876,12 @@ const Tour={
 
       const p1 = getTeamPower(m.t1);
       const p2 = getTeamPower(m.t2);
-      
-      const t1w = p1 * (0.9 + Math.random()*0.2) > p2 * (0.9 + Math.random()*0.2);
+      const diff = p1 - p2;
+      const k = 8;
+      const baseProb = 1/(1+Math.exp(-diff/k));
+      const jitter = 0.05*Math.random()-0.025;
+      const prob = Math.min(0.92,Math.max(0.08,baseProb + jitter));
+      const t1w = Math.random() < prob;
       const winner = t1w ? m.t1 : m.t2;
       
       this.strategy.resolveMatch(m, winner);
@@ -3681,12 +4152,13 @@ const Tour={
         if (playerStandingIndex === 1) rank='🥈 亚军';
         else if (playerStandingIndex < 4) rank='🥉 四强';
         else if (playerStandingIndex < 8) rank='🏅 八强';
-        else rank='💔 遗憾出局';
+        else rank='💔 遗憾出局（参赛奖金）';
         
-        // Simple prize pool distribution (approximate)
-        if (playerStandingIndex === 1) prize = Math.floor(this.ev.prize * 0.2);
-        else if (playerStandingIndex < 4) prize = Math.floor(this.ev.prize * 0.1);
-        else if (playerStandingIndex < 8) prize = Math.floor(this.ev.prize * 0.05);
+        // 奖金分层（小型赛事冠军拿走大头，参赛费有限）
+        if (playerStandingIndex === 1) prize = Math.floor(this.ev.prize * 0.30);       // 亚军 30%
+        else if (playerStandingIndex < 4) prize = Math.floor(this.ev.prize * 0.15);   // 3-4名 15%
+        else if (playerStandingIndex < 8) prize = Math.floor(this.ev.prize * 0.05);   // 5-8名 5%
+        else prize = Math.floor(this.ev.prize * 0.01);                                // 参赛保底 1%
     }else{prize=this.ev.prize;rank='🏆 赛事总冠军';}
     this.prize=prize;
     UI.renderAwards(mvp,evps,champ,rank,prize);
@@ -3748,6 +4220,32 @@ const Tour={
 const Match={
   s:null,
   _autoTimer:null,
+  // 战术状态管理
+  tactics: { econ: 'auto', stance: 'default', timeouts: 1, coachBuffActive: false },
+
+  setEcon(mode) {
+      this.tactics.econ = mode;
+      UI.updateScore(); // Refresh UI to show active state
+  },
+  
+  setStance(mode) {
+      this.tactics.stance = mode;
+      UI.updateScore();
+  },
+  
+  callTimeout() {
+      if(this.tactics.timeouts > 0) {
+          this.tactics.timeouts--;
+          this.tactics.coachBuffActive = true;
+          // Clear opponent win streaks
+          if(this.s && this.s.tB) {
+              const oppTeam = this.s.ctIsA ? this.s.tB : this.s.tA; 
+              this.s.tB.forEach(p => p._winStreak = 0);
+          }
+          UI.log(`⏸ 战术暂停！教练正在布置针对性战术... (剩余: ${this.tactics.timeouts})`, 'gold');
+          UI.updateScore();
+      }
+  },
 
   beginSeries(){
     if(!Tour.seriesMaps||Tour.seriesMaps.length===0){
@@ -3765,12 +4263,15 @@ const Match={
     if(!m)return;
     const opp=m.t1.isPlayer?m.t2:m.t1;
     const era=Game.eraObj;
+    
+    // Reset Tactics per map
+    this.tactics = { econ: 'auto', stance: 'default', timeouts: 1, coachBuffActive: false };
 
     const mkP=p=>({
       id:p.id,name:p.name,rating:p.rating||60,role:p.role,form:p.form||1,ref:p,
       matchStats: {
         rounds: 0, kills: 0, deaths: 0, assists: 0, adr: 0, kast: 0,
-        openingKills: 0, clutchWins: 0, multiKills: 0, impact: 0, rating: 0,
+        openingKills: 0, clutchWins: 0, multiKills: 0, k2: 0, impact: 0, rating: 0,
         kastRounds: 0, damage: 0
       },
       // 每回合增量追踪（随 matchStats 一起每图重置）
@@ -3825,12 +4326,19 @@ const Match={
     if(bar)bar.innerHTML=winsHtml+html;
   },
 
-  buyStatus(money,pistol,ot){
+  buyStatus(money,pistol,ot,isPlayerTeam){
     if(pistol)return{lvl:'Eco',name:'手枪局',mult:.95};
     if(ot)return{lvl:'Full',name:'加时长枪',mult:1.0};
+    
+    // Player Override
+    if(isPlayerTeam) {
+        if(Match.tactics.econ === 'force') return {lvl:'Force',name:'强制强起',mult:.75}; // 优于纯E
+        if(Match.tactics.econ === 'eco') return {lvl:'Eco',name:'战术Eco',mult:.55};
+    }
+    
     if(money>=4200)return{lvl:'Full',name:'长枪局',mult:1.0};
     if(money>=2000)return{lvl:'Force',name:'强起局',mult:.65};
-    return{lvl:'Eco',name:'纯E局',mult:.35};
+    return{lvl:'Eco',name:'经济局',mult:.55};
   },
 
   round(){
@@ -3857,8 +4365,11 @@ const Match={
 
     s.round++;
     const pistol=!s.isOT?(s.round===1||s.round===era.halfR+1):((s.round-s.otSegStart)===1);
-    const bA=this.buyStatus(s.monA,pistol,s.isOT);
-    const bB=this.buyStatus(s.monB,pistol,s.isOT);
+    
+    // 经济判定（集成玩家战术指令）
+    const isPlayerA = s.tA.every(p => p.ref.isPlayer || p.ref.teamId==='PLAYER' || (Game.roster||[]).some(r=>r.id===p.id));
+    const bA=this.buyStatus(s.monA,pistol,s.isOT,isPlayerA);
+    const bB=this.buyStatus(s.monB,pistol,s.isOT,!isPlayerA);
 
     // --- 比赛引擎 2.0 核心开始 ---
     // 先处理特质日志与特殊状态（保留原有特质副作用，但不用于直接决定胜负）
@@ -3887,33 +4398,104 @@ const Match={
     applyTraitEffects(s.tB,false,bB);
 
     // 1. 计算全队基础系数 (Base Modifiers)
-    const getTeamMod=(team,buyInfo,isCT)=>{
-      const mapScore=MapUtils.teamMapStr(team.map(p=>p.ref),Game.coach,s.map);
-      const mapMult=1+(mapScore-50)*0.0025;
+    // 关键修复：各队使用自己的coach，AI队不再继承玩家教练加成
+    const isPlayerTeamA = s.tA === s.tA; // tA 始终是玩家队 (mkP in round())
+    const playerCoach = Game.coach;
+    const aiCoach = s.opp ? (s.opp.coach || null) : null;
+
+    const getTeamMod=(team,buyInfo,isCT,isPlayerTeam,ownCoach,ownChem,ownSyn)=>{
+      // 使用各队自己的教练计算地图熟练度（修复：AI不再用玩家coach）
+      const mapScore=MapUtils.teamMapStr(team.map(p=>p.ref),ownCoach,s.map);
+      const mapMult=1+(mapScore-50)*0.003; // 略微放大地图专精影响
+
       const igl=team.find(p=>p.role==='IGL')||team[0];
-      const tact=((igl.ref.hltv?igl.ref.hltv.utility:60)+(Game.coach?Game.coach.tactics:50))/200;
+      const iglUtility=igl.ref.hltv?igl.ref.hltv.utility:60;
+      const coachTactics=ownCoach?ownCoach.tactics:48; // 无教练默认较低
+      const tact=(iglUtility+coachTactics)/200;
+
+      // 磨合度修正（直接作用于比赛，不再只是显示数字）
+      // chem<50 惩罚，chem>50 加成，范围 ±8%
+      let chemMod = 1;
+      if(ownChem !== null){
+        if(ownChem < 50) chemMod = 1 - (50-ownChem)*0.0025;
+        else chemMod = 1 + (ownChem-50)*0.0015;
+        chemMod = Math.max(0.90, Math.min(1.08, chemMod));
+      }
+
+      // 角色协同修正（synergy）
+      const synMod = ownSyn ? Math.max(0.94, Math.min(1.06, ownSyn)) : 1.0;
+
       let traitBonus=1;
       team.forEach(p=>{
         const ts=p.ref.traits||[];
-        if(ts.includes('headshot')&&buyInfo.lvl==='Full')traitBonus+=0.03;
-        if(ts.includes('leader')&&p.role==='IGL')traitBonus+=0.04;
-        if(ts.includes('volatile')){const vm=NORMAL_TRAITS.volatile.volatileMin+Math.random()*(NORMAL_TRAITS.volatile.volatileMax-NORMAL_TRAITS.volatile.volatileMin);traitBonus*=vm;}
-        if(ts.includes('手枪王子')&&buyInfo.lvl==='Eco')traitBonus+=0.5;
-        if(ts.includes('韩式自瞄'))traitBonus*=1.2;
-        if(ts.includes('sig_s1mple')&&p._s1mpleActive)traitBonus+=SIGNATURE_TRAITS.sig_s1mple.powerBonus;
-        if(ts.includes('sig_zywoo')&&pistol&&buyInfo.lvl==='Eco')traitBonus+=(1/0.95-1);
+        const isAtt = !isCT; // T方为进攻
+
+        // ── 已有特质（保留） ──
+        if(ts.includes('leader')&&p.role==='IGL') traitBonus+=NORMAL_TRAITS.leader.roundMult('IGL');
+        if(ts.includes('volatile')){ const vm=NORMAL_TRAITS.volatile.volatileMin+Math.random()*(NORMAL_TRAITS.volatile.volatileMax-NORMAL_TRAITS.volatile.volatileMin);traitBonus*=vm; }
+        if(ts.includes('手枪王子')&&buyInfo.lvl==='Eco') traitBonus+=0.5;
+        if(ts.includes('韩式自瞄')) traitBonus*=1.2;
+        if(ts.includes('sig_s1mple')&&p._s1mpleActive) traitBonus+=SIGNATURE_TRAITS.sig_s1mple.powerBonus;
+        if(ts.includes('sig_zywoo')&&pistol&&buyInfo.lvl==='Eco') traitBonus+=(1/0.95-1);
+        
+        // ── 新特质效果 ──
+        if(ts.includes('headshot')&&buyInfo.lvl==='Full') traitBonus+=0.06;
+        if(ts.includes('aggressor')&&isAtt){ traitBonus+=0.06; if(s.round<=3)traitBonus+=0.04; }
+        if(ts.includes('anchor')&&isCT) traitBonus+=0.06;
+        if(ts.includes('retake')&&isCT&&s.round>=(s.era.halfR||12)) traitBonus+=0.08;
+        if(ts.includes('ecoPunish')&&buyInfo.lvl==='Full'){
+          const oppBuy = (team===s.tA)?bB:bA;
+          if(oppBuy.lvl==='Eco') traitBonus+=0.12;
+          else if(oppBuy.lvl==='Force') traitBonus+=0.06;
+        }
+        if(ts.includes('forceBuy')&&buyInfo.lvl==='Force') traitBonus+=0.13; // overrides penalty partially
+        if(ts.includes('forceBuy')&&buyInfo.lvl==='Eco') traitBonus+=0.08;
+        if(ts.includes('utilityKing')){ traitBonus+=0.02; if(buyInfo.lvl==='Force')traitBonus+=0.06; }
+        if(ts.includes('mapControl')&&s.round>=12) traitBonus+=0.06;
+        if(ts.includes('clutchGene')&&s.isFinalStage) traitBonus+=0.05;
+        if(ts.includes('streaky')){
+          const streak=p._winStreak||0;
+          const mults=NORMAL_TRAITS.streaky.streakMults;
+          traitBonus+=(mults[Math.min(streak,4)]||0);
+        }
+        if(ts.includes('rapidFire')) traitBonus+=0.03; // base benefit every round
       });
-      return buyInfo.mult*mapMult*(0.85+tact*0.3)*traitBonus;
+
+      return buyInfo.mult * mapMult * (0.85+tact*0.3) * chemMod * synMod * traitBonus;
     };
 
-    const modA=getTeamMod(s.tA,bA,s.ctIsA);
-    const modB=getTeamMod(s.tB,bB,!s.ctIsA);
+    // 玩家队：使用真实chem和syn；AI队：估算chem=60（训练有素），syn=1.02
+    const playerChem = Game.chem;
+    const playerSyn = Game.synergy().mult;
+    const aiChem = 58 + Math.random()*12 - 6; // AI队磨合度约52~70，随机波动
+    const aiSyn = 1.0 + (Math.random()*0.05 - 0.01); // AI协同 0.99~1.04
+
+    // Map Proficiency (0-100)
+    // For Player: mapScore from getTeamMod calculation
+    const tAMapStr = MapUtils.teamMapStr(s.tA.map(p=>p.ref), playerCoach, s.map);
+    // For AI: mapScore
+    const tBMapStr = MapUtils.teamMapStr(s.tB.map(p=>p.ref), aiCoach, s.map);
+
+    const modA=getTeamMod(s.tA,bA,s.ctIsA,true,playerCoach,playerChem,playerSyn);
+    const modB=getTeamMod(s.tB,bB,!s.ctIsA,false,aiCoach,aiChem,aiSyn);
+    
+    // Coach Buff (Tactical Timeout)
+      let finalModA = modA;
+      if(this.tactics.coachBuffActive) {
+          if(Game.coach) {
+               const buff = Math.min(0.08, Game.coach.tactics / 800); // Max 8%
+               UI.log(`💡 教练 ${Game.coach.name} 战术生效！全队战力提升 +${(buff*100).toFixed(1)}%`, 'gold');
+               finalModA *= (1 + buff);
+          }
+          this.tactics.coachBuffActive = false; // Reset
+      }
 
     // 2. 执行三阶段模拟
     const attackers=s.ctIsA?s.tB:s.tA;
     const defenders=s.ctIsA?s.tA:s.tB;
-    const attMod=s.ctIsA?modB:modA;
-    const defMod=s.ctIsA?modA:modB;
+    
+    const attMod=s.ctIsA?modB:finalModA;
+    const defMod=s.ctIsA?finalModA:modB;
 
     // ECO 翻盘概率保留
     const _ecoFlipAttTeam=attackers===s.tA?bA:bB;
@@ -3926,7 +4508,11 @@ const Match={
     let result;
     if(ecoFlipAtt){result={winner:'att'};}
     else if(ecoFlipDef){result={winner:'def'};}
-    else{result=this._simulateRoundFlow(attackers,defenders,attMod,defMod);}
+    else{
+        const attMapStr = s.ctIsA ? tBMapStr : tAMapStr;
+        const defMapStr = s.ctIsA ? tAMapStr : tBMapStr;
+        result=this._simulateRoundFlow(attackers,defenders,attMod,defMod,attMapStr,defMapStr);
+    }
 
     const aWins=(s.ctIsA&&result.winner==='def')||(!s.ctIsA&&result.winner==='att');
     const ecoFlip=ecoFlipAtt||ecoFlipDef;
@@ -3943,105 +4529,313 @@ const Match={
       s.sA++;s.monA=Math.min(16000,s.monA+3250);
       s.monB=Math.min(16000,s.monB+1400+s.lsB*500+bonB);
       s.lsB=Math.min(4,s.lsB+1);s.lsA=era.lossReset?0:Math.max(0,s.lsA-1);
-
+      // 连胜追踪（'streaky'特质用）
+      s.tA.forEach(p=>{ p._winStreak=(p._winStreak||0)+1; });
+      s.tB.forEach(p=>{ p._winStreak=0; });
       if(ecoFlip&&attackers===s.tA)UI.log(`${lbl} 🔥 ECO翻盘！`,'eco');else UI.log(`${lbl} 赢下回合。`,'win');
     }else{
       s.sB++;s.monB=Math.min(16000,s.monB+3250);
       s.monA=Math.min(16000,s.monA+1400+s.lsA*500+bonA);
       s.lsA=Math.min(4,s.lsA+1);s.lsB=era.lossReset?0:Math.max(0,s.lsB-1);
-
+      // 连胜追踪（'streaky'特质用）
+      s.tB.forEach(p=>{ p._winStreak=(p._winStreak||0)+1; });
+      s.tA.forEach(p=>{ p._winStreak=0; });
       if(ecoFlip&&attackers===s.tB)UI.log(`${lbl} 🔥 对手ECO翻盘！`,'eco');else UI.log(`${lbl} 回合失利。`,'loss');
     }
     UI.updateScore();
     if(s.sA>=s.target||s.sB>=s.target)this.end();
   },
 
-  _simulateRoundFlow(attTeam, defTeam, attMod, defMod) {
+  _pickPlayerByRole(team, roles) {
+      // 1. Try to find a player with one of the target roles
+      const candidates = team.filter(p => roles.includes(p.role));
+      if (candidates.length > 0) {
+          return candidates[Math.floor(Math.random() * candidates.length)];
+      }
+      // 2. Fallback: Pick anyone
+      if (team.length > 0) {
+          return team[Math.floor(Math.random() * team.length)];
+      }
+      return null;
+  },
+
+  _simulateRoundFlow(attTeam, defTeam, attMod, defMod, attMapStr, defMapStr) {
     const s=this.s;
-    // 初始化存活状态（浅拷贝引用，保证 matchStats 写入原对象）
     const aliveAtt=[...attTeam];
     const aliveDef=[...defTeam];
 
-    // 1. 获取当前地图的风格配置
+    // 1. 获取当前地图的风格配置与战术契合度
     const mapStyle = MAP_STYLES[s.map] || {};
+    const mapAffinity = mapStyle.tactics || { rush: 1.0, slow: 1.0, aggro: 1.0, retake: 1.0 };
 
     // 2. 辅助：获取属性（随机波动 0.8~1.2 + 地图权重 + IGL战术加成）
     const getStat = (p, key) => {
-      const hltv = p.ref.hltv || World.generateHLTVProfile(p.rating, p.role);
+      // 确保七维属性固定到选手对象，防止每次调用重新随机生成
+      if(!p.ref.hltv) p.ref.hltv = World.generateHLTVProfile(p.rating, p.role);
+      const hltv = p.ref.hltv;
       const base = hltv[key] || 60;
       const mapMult = mapStyle[key] || 1.0;
-      let roleBonus = 1.0;
-      if (p.role === 'IGL' && mapStyle.tactics) {
-        if (key === 'utility' || key === 'trading') roleBonus = mapStyle.tactics;
-      }
-      return base * p.form * (0.8 + Math.random() * 0.4) * mapMult * roleBonus;
+      // Removed legacy IGL roleBonus from mapStyle.tactics (which is now an object)
+      return base * p.form * (0.88 + Math.random() * 0.24) * mapMult; 
     };
 
-    // --- 阶段一：首杀争夺 (The Opening) ---
-    // 选人：T找Entry能力最强的，CT找Opening/Sniping最强的
-    const tEntry = aliveAtt.reduce((a,b) => getStat(a,'entrying') > getStat(b,'entrying') ? a : b);
-    const ctAnchor = aliveDef.reduce((a,b) => (getStat(a,'opening') + getStat(a,'sniping')) > (getStat(b,'opening') + getStat(b,'sniping')) ? a : b);
+    // 获取双方 IGL
+    const attIGL = attTeam.find(p => p.role === 'IGL') || attTeam[0];
+    const defIGL = defTeam.find(p => p.role === 'IGL') || defTeam[0];
 
-    // 核心：Firepower 占 60%，场景属性占 40%
-    const tPower = (getStat(tEntry,'firepower') * 0.6 + getStat(tEntry,'entrying') * 0.4) * attMod;
-    let ctScore = 0;
-    if (ctAnchor.role === 'Sniper') {
-      ctScore = getStat(ctAnchor,'firepower') * 0.5 + getStat(ctAnchor,'sniping') * 0.5;
-    } else {
-      ctScore = getStat(ctAnchor,'firepower') * 0.6 + getStat(ctAnchor,'opening') * 0.4;
+    // ─── 阶段 0：CT 前压反清 (Aggro) ───
+    const isDefPlayer = defTeam === s.tA; // tA is player
+    const defStance = isDefPlayer ? this.tactics.stance : 'default'; // AI defaults
+    
+    if (defStance === 'aggro') {
+        // 大局判定：CT_IGL Opening vs T_IGL Utility
+        const ctTiming = getStat(defIGL, 'opening') * 1.1; // Aggro bonus
+        const tAwareness = getStat(attIGL, 'utility');
+        
+        // 地图战术修正：Aggro 契合度 (Nuke > Inferno)
+        const affinity = mapAffinity.aggro;
+        // 熟练度修正：若 CT 熟练度 < 50，容易白给
+        const profPenalty = defMapStr < 50 ? 0.9 : 1.0;
+        
+        const success = (ctTiming * affinity * profPenalty) > tAwareness * (0.9 + Math.random()*0.3);
+        
+        if (success) {
+            UI.log(`⚡ [CT前压] ${defIGL.name} 指挥前压抓到了 Timing！`, 'win');
+            // 抓取对枪：CT 激进位 (Entry/Sniper/Rifler) vs T 任意
+            const pCT = this._pickPlayerByRole(aliveDef, ['Entry', 'Sniper', 'Rifler']);
+            const pT = this._pickPlayerByRole(aliveAtt, ['Entry', 'Lurker']); // T lurking or entrying caught
+            
+            // CT 巨大优势 (+30%)
+            if (pCT && pT) {
+                 const ctPow = getStat(pCT, 'firepower') * defMod * 1.3;
+                 const tPow = getStat(pT, 'firepower') * attMod;
+                 if (ctPow > tPow) {
+                     this._kill(pCT, pT, 'opening', attTeam, defTeam);
+                     aliveAtt.splice(aliveAtt.indexOf(pT), 1);
+                 } else {
+                     // 即使有优势也可能被打死
+                     this._kill(pT, pCT, 'opening', attTeam, defTeam);
+                     aliveDef.splice(aliveDef.indexOf(pCT), 1);
+                 }
+            }
+        } else {
+            UI.log(`⚠ [CT前压] 前压意图被发现，陷入被动！`, 'loss');
+            // CT 劣势 (-20%)
+            const pCT = this._pickPlayerByRole(aliveDef, ['Entry', 'Rifler']); // Aggressor caught
+            const pT = this._pickPlayerByRole(aliveAtt, ['Lurker', 'Sniper']); // Holding angle
+            
+            if (pCT && pT) {
+                 const ctPow = getStat(pCT, 'firepower') * defMod * 0.8;
+                 const tPow = getStat(pT, 'firepower') * attMod;
+                 if (tPow > ctPow) {
+                     this._kill(pT, pCT, 'opening', attTeam, defTeam);
+                     aliveDef.splice(aliveDef.indexOf(pCT), 1);
+                 } else {
+                     this._kill(pCT, pT, 'opening', attTeam, defTeam);
+                     aliveAtt.splice(aliveAtt.indexOf(pT), 1);
+                 }
+            }
+        }
     }
-    const ctPower = ctScore * defMod;
-
-    if(tPower > ctPower){
-      this._kill(tEntry, ctAnchor, 'opening', attTeam, defTeam);
-      aliveDef.splice(aliveDef.indexOf(ctAnchor), 1);
-    } else {
-      this._kill(ctAnchor, tEntry, 'opening', attTeam, defTeam);
-      aliveAtt.splice(aliveAtt.indexOf(tEntry), 1);
+    
+    // ─── 阶段 1：首杀争夺 (The Opening) ───
+    // Retake 跳过此阶段
+    if (defStance !== 'retake' && aliveAtt.length > 0 && aliveDef.length > 0) {
+        const isAttPlayer = attTeam === s.tA;
+        const attStance = isAttPlayer ? this.tactics.stance : 'default';
+        
+        // T-Slow: 摸排
+        if (attStance === 'slow') {
+            // 拼意识：Utility + Clutching
+            // 地图战术修正：Slow 契合度 (Inferno > Dust2)
+            const affinity = mapAffinity.slow;
+            
+            // 熟练度惩罚：Slow 极吃理解，<60 则 Utility 打7折
+            let profMult = 1.0;
+            if (attMapStr < 60) {
+                profMult = 0.7;
+                if (Math.random() < 0.2) UI.log(`<span style='color:var(--dim)'>因地图不熟，慢摸战术脱节...</span>`, 'loss');
+            }
+            
+            // 抓取 Lurker
+            const pT = this._pickPlayerByRole(aliveAtt, ['Lurker']);
+            const pCT = this._pickPlayerByRole(aliveDef, ['Sniper', 'Anchor', 'Rifler']); // Anchor holding
+            
+            if (pT && pCT) {
+                // T方意识得分：(Utility + Clutching) * IGL加成 * 地图契合 * 熟练度
+                const tSkill = (getStat(pT, 'utility') + getStat(pT, 'clutching')) * attMod * affinity * profMult;
+                const ctSkill = (getStat(pCT, 'utility') + getStat(pCT, 'clutching')) * defMod;
+                
+                // 慢摸交火通常比较均势，看谁失误
+                if (tSkill * (0.9+Math.random()*0.2) > ctSkill * (0.9+Math.random()*0.2)) {
+                    this._kill(pT, pCT, 'opening', attTeam, defTeam);
+                    aliveDef.splice(aliveDef.indexOf(pCT), 1);
+                } else {
+                    this._kill(pCT, pT, 'opening', attTeam, defTeam);
+                    aliveAtt.splice(aliveAtt.indexOf(pT), 1);
+                }
+            }
+        } 
+        // T-Rush: 爆弹
+        else if (attStance === 'rush') {
+            // IGL 加成
+            const iglBuff = getStat(attIGL, 'entrying') > 75 ? 1.15 : 1.0;
+            // 地图战术修正：Rush 契合度 (Dust2 > Inferno)
+            const affinity = mapAffinity.rush;
+            // 熟练度优势：Rush 不吃熟练度，无惩罚
+            
+            const pT = this._pickPlayerByRole(aliveAtt, ['Entry']);
+            const pCT = this._pickPlayerByRole(aliveDef, ['Anchor', 'Sniper']); // Anchor holding site
+            
+            if (pT && pCT) {
+                const tPow = getStat(pT, 'firepower') * attMod * iglBuff * affinity;
+                const ctPow = getStat(pCT, 'firepower') * defMod; // Anchor has cover advantage? Maybe implicit in mapStyle
+                
+                if (tPow > ctPow) {
+                    this._kill(pT, pCT, 'opening', attTeam, defTeam);
+                    aliveDef.splice(aliveDef.indexOf(pCT), 1);
+                } else {
+                    // Entry died! Trade logic?
+                    this._kill(pCT, pT, 'opening', attTeam, defTeam);
+                    aliveAtt.splice(aliveAtt.indexOf(pT), 1);
+                    
+                    // 强制补枪判定
+                    if (aliveAtt.length > 0) {
+                        // IGL 创造补枪窗口
+                        const tradeWindow = getStat(attIGL, 'trading') / 100; // e.g. 0.7
+                        if (Math.random() < tradeWindow) {
+                            const pTrade = this._pickPlayerByRole(aliveAtt, ['Rifler', 'IGL']); // Second entry
+                            if (pTrade) {
+                                // Trade kill (high chance)
+                                this._kill(pTrade, pCT, 'trade', attTeam, defTeam); // type='trade' not standard but okay as 'normal'
+                                aliveDef.splice(aliveDef.indexOf(pCT), 1);
+                                UI.log(`🔄 ${pTrade.name} 迅速补枪击杀 ${pCT.name}`, 'gold');
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Default Opening
+        else {
+             // Standard logic
+             const pT = this._pickPlayerByRole(aliveAtt, ['Entry', 'Sniper']);
+             const pCT = this._pickPlayerByRole(aliveDef, ['Sniper', 'Rifler']);
+             
+             if (pT && pCT) {
+                 const tVal = getStat(pT, 'opening') * attMod;
+                 const ctVal = getStat(pCT, 'opening') * defMod;
+                 if (tVal * (0.8+Math.random()*0.4) > ctVal * (0.8+Math.random()*0.4)) {
+                     this._kill(pT, pCT, 'opening', attTeam, defTeam);
+                     aliveDef.splice(aliveDef.indexOf(pCT), 1);
+                 } else {
+                     this._kill(pCT, pT, 'opening', attTeam, defTeam);
+                     aliveAtt.splice(aliveAtt.indexOf(pT), 1);
+                 }
+             }
+        }
     }
 
-    // --- 阶段二：中期交换 (The Trade & Brawl) ---
-    // Firepower 绝对主宰（70%），Trading 和 Utility 为修正值
-    let tradeRound = 0;
-    while(aliveAtt.length > 0 && aliveDef.length > 0 && tradeRound < 5){
-      tradeRound++;
-      const p1 = aliveAtt[Math.floor(Math.random() * aliveAtt.length)];
-      const p2 = aliveDef[Math.floor(Math.random() * aliveDef.length)];
-
-      const attUtil = aliveAtt.reduce((sum,p) => sum + getStat(p,'utility'), 0) / aliveAtt.length;
-      const defUtil = aliveDef.reduce((sum,p) => sum + getStat(p,'utility'), 0) / aliveDef.length;
-
-      const p1Score = (getStat(p1,'firepower') * 0.7 + getStat(p1,'trading') * 0.2 + attUtil * 0.1) * attMod;
-      const p2Score = (getStat(p2,'firepower') * 0.7 + getStat(p2,'trading') * 0.2 + defUtil * 0.1) * defMod;
-
-      if(p1Score > p2Score){
-        this._kill(p1, p2, 'normal', attTeam, defTeam);
-        aliveDef.splice(aliveDef.indexOf(p2), 1);
-      } else {
-        this._kill(p2, p1, 'normal', attTeam, defTeam);
-        aliveAtt.splice(aliveAtt.indexOf(p1), 1);
-      }
-      if(aliveAtt.length <= 1 || aliveDef.length <= 1) break;
+    // ─── 阶段 2：中期枪战 (The Trade & Brawl) ───
+    // Rush: 少轮次; Slow: 多轮次
+    // Retake: Skipped (goes to clutch)
+    if (defStance !== 'retake' && aliveAtt.length > 0 && aliveDef.length > 0) {
+        const isAttPlayer = attTeam === s.tA;
+        const attStance = isAttPlayer ? this.tactics.stance : 'default';
+        
+        let rounds = 3;
+        if (attStance === 'rush') rounds = 1; // Fast execute
+        if (attStance === 'slow') rounds = 5; // Slow map control
+        
+        for (let i=0; i<rounds; i++) {
+            if (aliveAtt.length === 0 || aliveDef.length === 0) break;
+            
+            // Mid-round: Riflers and IGLs shine
+            const pT = this._pickPlayerByRole(aliveAtt, ['Rifler', 'IGL', 'Entry']);
+            const pCT = this._pickPlayerByRole(aliveDef, ['Rifler', 'IGL', 'Anchor']);
+            
+            if (pT && pCT) {
+                 // Trading & Firepower
+                 const tPow = (getStat(pT, 'firepower') + getStat(pT, 'trading')) * attMod;
+                 const ctPow = (getStat(pCT, 'firepower') + getStat(pCT, 'trading')) * defMod;
+                 
+                 // Random brawl
+                 if (tPow * Math.random() > ctPow * Math.random()) {
+                     this._kill(pT, pCT, 'normal', attTeam, defTeam);
+                     aliveDef.splice(aliveDef.indexOf(pCT), 1);
+                 } else {
+                     this._kill(pCT, pT, 'normal', attTeam, defTeam);
+                     aliveAtt.splice(aliveAtt.indexOf(pT), 1);
+                 }
+            }
+        }
     }
 
-    // --- 阶段三：残局决胜 (The Clutch) ---
-    // Firepower 50% + Clutching 50%，残局既要枪硬又要脑子清楚
+    // ─── 阶段 3：残局决胜 (The Clutch) ───
     if(aliveAtt.length > 0 && aliveDef.length > 0){
-      const pAtt = aliveAtt[0];
-      const pDef = aliveDef[0];
-      const attClutch = (getStat(pAtt,'firepower') * 0.5 + getStat(pAtt,'clutching') * 0.5) * attMod * aliveAtt.length;
-      const defClutch = (getStat(pDef,'firepower') * 0.5 + getStat(pDef,'clutching') * 0.5) * defMod * aliveDef.length;
+      // Lurkers survive to clutch
+      const pAtt = this._pickPlayerByRole(aliveAtt, ['Lurker']);
+      const pDef = this._pickPlayerByRole(aliveDef, ['Lurker', 'Sniper', 'Anchor']);
+
+      // 特质加成：bigHeart/retake/snakeEyes/bigHeart
+      const getClutchTrait = (p, isCTSide) => {
+        let bonus = 1;
+        const ts = p.ref.traits||[];
+        if(ts.includes('bigHeart')) bonus += NORMAL_TRAITS.bigHeart.clutchBonus;
+        if(ts.includes('retake')&&isCTSide) bonus += NORMAL_TRAITS.retake.lateClutchBonus;
+        if(ts.includes('snakeEyes')&&p.role==='Lurker') bonus += NORMAL_TRAITS.snakeEyes.lurkClutch;
+        if(ts.includes('sig_zywoo')) bonus += SIGNATURE_TRAITS.sig_zywoo.clutchBonus||0.55;
+        if(ts.includes('legend_core')) bonus += GENERIC_LEGEND_TRAITS.legend_core.clutchPowerBonus||0.20;
+        return bonus;
+      };
+      
+      const isAttCT = !s.ctIsA; 
+      const attClutchTrait = getClutchTrait(pAtt, isAttCT);
+      const defClutchTrait = getClutchTrait(pDef, !isAttCT);
+      
+      // 战术修正
+      // Retake: CT IGL Utility Bonus
+      let defBonus = 1.0;
+      let attBonus = 1.0;
+      
+      if (defStance === 'retake') {
+          // 地图战术修正：Retake 契合度
+          const affinity = mapAffinity.retake;
+          // 熟练度惩罚：Retake 吃协同，<65 则战术失效且反噬
+          let profMult = 1.0;
+          let baseRetakeBuff = (getStat(defIGL, 'utility') / 200); // e.g. +0.4
+          
+          if (defMapStr < 65) {
+              profMult = 0.0; // Bonus removed
+              defBonus *= 0.8; // Penalty: easy to be killed by crossfire
+              UI.log(`<span style='color:var(--dim)'>回防配合失误，被各个击破！</span>`, 'loss');
+          }
+          
+          defBonus += (baseRetakeBuff * affinity * profMult); 
+          if (profMult > 0) UI.log(`📢 [战术回防] CT 全员集结，协同回防！`, 'gold');
+      }
+      
+      const isAttPlayer = attTeam === s.tA;
+      const attStance = isAttPlayer ? this.tactics.stance : 'default';
+      if (attStance === 'rush') {
+          attBonus -= 0.15; // Out of utility
+      }
+
+      const attClutch = (getStat(pAtt,'firepower') * 0.45 + getStat(pAtt,'clutching') * 0.45) * attMod * aliveAtt.length * attClutchTrait * attBonus;
+      const defClutch = (getStat(pDef,'firepower') * 0.45 + getStat(pDef,'clutching') * 0.45) * defMod * aliveDef.length * defClutchTrait * defBonus;
 
       if(attClutch > defClutch){
         aliveDef.forEach(p => this._kill(pAtt, p, 'clutch', attTeam, defTeam));
-        return{winner:'att'};
+        aliveDef.length = 0; 
       } else {
         aliveAtt.forEach(p => this._kill(pDef, p, 'clutch', attTeam, defTeam));
-        return{winner:'def'};
+        aliveAtt.length = 0; 
       }
     }
 
-    // 多杀 & KAST 结算（基于本回合增量，不用累计值比较）
+    const roundWinner = aliveAtt.length > 0 ? 'att' : 'def';
+
+    // 多杀 & KAST & rounds 结算（统一在回合末执行，不受早期分支影响）
     const allPlayers=[...attTeam,...defTeam];
     allPlayers.forEach(p=>{
       const prevKills   = p._prevKills   || 0;
@@ -4049,16 +4843,32 @@ const Match={
       const prevDeaths  = p._prevDeaths  || 0;
 
       const thisRoundKills   = p.matchStats.kills   - prevKills;
+      // 助攻统计修正：若本回合未杀未死但队友击杀，可能有助攻
+      // 这里简化处理：每回合若队友有击杀，存活者小概率+助攻
+      // 更好的方式是在 _kill 时计算，但这里是补丁。
+      // 我们改在 _kill 里处理真实助攻逻辑。
+      
       const thisRoundAssists = p.matchStats.assists - prevAssists;
       const thisRoundDeaths  = p.matchStats.deaths  - prevDeaths;
 
-      // 多杀：本回合 3 杀+
-      if(thisRoundKills >= 3) p.matchStats.multiKills = (p.matchStats.multiKills||0) + 1;
+      // 多杀统计（用于 HLTV Impact 计算）
+      if(thisRoundKills >= 2) p.matchStats.k2 = (p.matchStats.k2||0) + 1;     // 2K+
+      if(thisRoundKills >= 3) p.matchStats.multiKills = (p.matchStats.multiKills||0) + 1; // 3K+
 
       // KAST：本回合有击杀、助攻、或者没死，三者满足其一即算
       if(thisRoundKills > 0 || thisRoundAssists > 0 || thisRoundDeaths === 0){
         p.matchStats.kastRounds++;
       }
+
+      // ADR：HLTV定义是对敌方全队每回合造成的总伤害
+      // 真实逻辑：击杀 ≈ 100伤害（致命一击），未击杀的命中 ≈ 20~60
+      // 每回合，该选手命中了多少敌人由击杀数 + 小概率额外命中决定
+      // 用thisRoundKills作为主要驱动，避免multi-kill线性放大
+      const killDmg = thisRoundKills * rnd(90, 115);  // 击杀伤害（约100）
+      // 未造成击杀的命中：低概率额外伤害（模拟与其他人交火中打伤目标）
+      const chipDmg = (thisRoundKills === 0 && Math.random() < 0.35) ? rnd(15, 55) : 
+                      (thisRoundKills > 0  && Math.random() < 0.25) ? rnd(10, 35) : 0;
+      p.matchStats.damage += killDmg + chipDmg;
 
       p._prevKills   = p.matchStats.kills;
       p._prevAssists = p.matchStats.assists;
@@ -4066,16 +4876,26 @@ const Match={
       p.matchStats.rounds++;
     });
 
-    return{winner:aliveAtt.length>0?'att':'def'};
+    return{winner: roundWinner};
   },
 
   _kill(killer,victim,type,attTeam,defTeam){
     const s=this.s;
     killer.matchStats.kills++;
-    killer.matchStats.damage+=rnd(80,110);
+    // 不在此处累加damage，damage在回合结束统一按期望ADR计算
     victim.matchStats.deaths++;
-    if(type==='opening')killer.matchStats.openingKills=(killer.matchStats.openingKills||0)+1;
-    if(type==='clutch')killer.matchStats.clutchWins=(killer.matchStats.clutchWins||0)+1;
+    // ── Impact 统计：首杀和残局击杀计入 ──
+    if(type==='opening') killer.matchStats.openingKills = (killer.matchStats.openingKills||0) + 1;
+    if(type==='clutch')  killer.matchStats.clutchWins   = (killer.matchStats.clutchWins||0)   + 1;
+    // 助攻判定：若非单挑且非残局，有 30% 概率给一名随机存活队友加助攻
+    if(type!=='clutch' && type!=='opening' && Math.random()<0.3){
+      const mates = attTeam.includes(killer) ? attTeam : defTeam;
+      const validMates = mates.filter(m => m !== killer && m.matchStats.deaths === (m._prevDeaths||0));
+      if(validMates.length > 0){
+        const assister = validMates[Math.floor(Math.random()*validMates.length)];
+        assister.matchStats.assists = (assister.matchStats.assists||0) + 1;
+      }
+    }
 
     // 日志输出（首杀/残局必出，普通随机 20%）
     if(type==='opening'||type==='clutch'||Math.random()<0.2){
@@ -4108,24 +4928,28 @@ const Match={
       const rounds = Math.max(1, s.rounds);
 
       // ── 基础数据 ──────────────────────────────────────
-      const kpr  = s.kills  / rounds;               // 每回合击杀，正常 0.5~1.0
-      const dpr  = s.deaths / rounds;               // 每回合死亡，正常 0.5~0.9
-      const apr  = s.assists / rounds;              // 每回合助攻
+      // 不对KPR/DPR硬截断——让真实数据自然流出
+      // 顶级选手KPR≈0.80~0.95，普通≈0.55~0.70；DPR顶级≈0.45~0.55，普通≈0.60~0.75
+      const kpr  = s.kills  / rounds;
+      const dpr  = s.deaths / rounds;
+      const apr  = s.assists / rounds;
 
-      // ADR：每回合平均伤害，正常 60~120，clamp 防止异常值
-      const adr  = Math.min(200, s.damage / rounds);
-      const adrNorm = adr / 100;                    // 归一化到 ~0.6~1.2
+      // ADR：真实范围 普通65~75，强力选手85~100，极端carry局可达120+
+      const adr  = Math.max(0, s.damage / rounds);
 
-      // KAST：clamp 到 [0, 1]，避免累计 bug 导致超过 100%
+      // KAST%：正常范围 55%~85%，超过100%说明有bug
       const kastRate = Math.min(1, Math.max(0, s.kastRounds / rounds));
 
-      // Impact：opening + clutch，正常每回合 0~0.3
-      const impactRaw = (s.openingKills + (s.clutchWins||0) * 1.5) / rounds;
-      const impact = Math.min(0.5, impactRaw);      // clamp 上限
+      // ── HLTV Impact（真实公式近似）──────────────────────────────────
+      // HLTV Impact ≈ 2.13*KPR + 0.42*(k2Rounds/rounds) - 0.41
+      // k2Rounds = 本场有2杀以上的回合数（已在回合结束时统计到 s.k2）
+      // 正常范围：普通选手 0.40~0.80，明星 0.90~1.30，carry局可达 1.5+
+      const k2Rate = (s.k2 || 0) / rounds;
+      const impact = Math.max(0, 2.13 * kpr + 0.42 * k2Rate - 0.41);
 
-      // ── HLTV Rating 2.0 近似公式 ─────────────────────
-      // 参考：Rating ≈ 0.0073*KAST + 0.3591*KPR - 0.5329*DPR + 0.2372*Impact + 0.0032*ADR + 0.1587
-      // 正常 Rating 范围：0.50 ~ 1.60，顶级选手可到 1.30 左右
+      // ── HLTV Rating 2.0 公式（经过逆向验证的近似公式）────────────
+      // Rating ≈ 0.0073*KAST + 0.3591*KPR - 0.5329*DPR + 0.2372*Impact + 0.0032*ADR + 0.1587
+      // 正常场均：普通 0.85~1.05，明星 1.10~1.30，单场 carry 可达 1.5~2.0+
       let rating =
           0.0073 * (kastRate * 100) +
           0.3591 * kpr -
@@ -4134,22 +4958,21 @@ const Match={
           0.0032 * adr +
           0.1587;
 
-      // 助攻微加成（utility 选手补偿）
-      rating += apr * 0.05;
+      // 助攻微加成（utility/support 选手补偿）
+      rating += apr * 0.04;
 
-      // 最终 clamp：0.30 ~ 2.00，超过 2 必然是数据异常
-      rating = Math.min(2.00, Math.max(0.30, rating));
+      // 下限 0.30 防止极端情况产生负数；不设硬上限保留 carry 空间
+      rating = Math.max(0.30, rating);
 
       p.rating2 = rating.toFixed(2);
 
-      // 更新展示字段
+      // 更新展示字段（Impact 直接展示真实值，与 Rating 计算一致）
       p.kills   = s.kills;
       p.deaths  = s.deaths;
       p.assists = s.assists;
       p.adr     = adr.toFixed(1);
       p.kast    = (kastRate * 100).toFixed(1);
-      // Impact 缩放到 HLTV 展示范围（通常 0.5~1.5）
-      p.impact  = Math.min(2.5, impact * 3.5).toFixed(2);
+      p.impact  = impact.toFixed(2);
 
       p.score = rating;
 
@@ -4256,11 +5079,14 @@ const UI={
     document.querySelectorAll('.nav').forEach(b=>b.classList.remove('on'));
     const navMap={home:0,rankings:1,schedule:2,market:3,match:4,hall:5};
     if(navMap[id]!=null){const navBtns=document.querySelectorAll('.nav');if(navBtns[navMap[id]])navBtns[navMap[id]].classList.add('on');}
+    this.currentPage=id;
     if(id==='home')this.renderHome();
     if(id==='market'){this.renderMarketTimer();Market.renderAll();}
     if(id==='schedule')this.renderCal();
     if(id==='hall')this.renderHall();
     if(id==='rankings')this.renderRankings();
+    if(id==='sponsors')this.renderSponsors();
+    if(id==='facilities')Facilities.render();
     // 手机端：切换页面后同步底部导航高亮 & 关闭抽屉
     this.mobNav(id);
     this.closeSidebar();
@@ -4372,6 +5198,57 @@ const UI={
       <div style="color:var(--dim);font-size:12px">${x.date?new Date(x.date).getFullYear():'Unknown'}</div>
       <div style="color:#86efac;font-size:13px;margin-top:6px">奖金 $${(x.prize||0).toLocaleString()}</div>
     </div>`).join('');
+  },
+
+  renderSponsors(){
+    const activeEl=document.getElementById('active-sponsors');
+    const availEl=document.getElementById('available-sponsors');
+    if(!activeEl||!availEl)return;
+    const act=SponsorManager.activeSponsors||[];
+    if(!act.length){
+      activeEl.innerHTML='<div style="grid-column:1/-1;text-align:center;padding:24px;color:var(--dim)">暂无赞助合同</div>';
+    }else{
+      activeEl.innerHTML=act.map(sp=>{
+        const valPer=sp.valuePerEvent||0;
+        const total=sp.totalValue||0;
+        const remain=sp.remainingEvents||0;
+        const req=sp.minTierRequirement||'a-tier';
+        return `<div class="card" style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div style="font-weight:700;color:#fff;font-size:15px">${sp.tierName}</div>
+            <div style="font-size:12px;color:var(--dim)">最低赛事要求：${req.toUpperCase()}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:13px;color:#86efac">每次曝光 $${valPer.toLocaleString()}</div>
+            <div style="font-size:12px;color:var(--dim)">剩余 ${remain} 场 | 总额 $${total.toLocaleString()}</div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+    const tiers=CONFIG.SPONSOR_TIERS||[];
+    availEl.innerHTML=tiers.map(t=>{
+      const chk=SponsorManager.canSign(t.name,Game);
+      const ok=chk&&chk.ok;
+      const reason=chk&&chk.reason?chk.reason:'';
+      const lock=`需粉丝 ≥ ${t.minFans.toLocaleString()}，赛事 ≥ ${t.minTierRequirement.toUpperCase()}`;
+      // Fix: 未达标时按钮置灰、禁用点击、显示锁定图标
+      const btn=ok
+          ? `<button class="btn full" onclick="Game.signSponsor('${t.name}')" style="margin-top:8px">签约</button>`
+          : `<button class="btn full" disabled style="margin-top:8px;opacity:0.5;background:var(--panel2);border-color:var(--border);cursor:not-allowed">🔒 未解锁</button>`;
+      
+      const style=ok?``
+                    :`opacity:.7;background:var(--panel2);border-color:var(--border)`;
+      return `<div class="card" style="${style}">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <div style="font-weight:700;color:#fff;font-size:15px">${t.name}</div>
+          <div style="font-size:11px;background:var(--panel2);padding:2px 6px;border-radius:4px;border:1px solid var(--border);color:var(--dim)">${t.minTierRequirement.toUpperCase()}</div>
+        </div>
+        <div style="font-size:12px;color:var(--dim)">解锁条件：${lock}</div>
+        ${!ok?`<div style="font-size:12px;color:var(--loss);margin-top:4px">未达标：${reason||'请提升粉丝与赛事级别'}</div>`:''}
+        <div style="font-size:12px;color:#86efac;margin-top:6px">合同基础总额约 $${t.baseValue.toLocaleString()} / ${t.requiredEventCount} 场</div>
+        ${btn}
+      </div>`;
+    }).join('');
   },
 
   showPlayer(id){
@@ -4510,15 +5387,23 @@ const UI={
   renderCoach(){
     const c=Game.coach;
     const el=document.getElementById('coach-container');if(!el)return;
-    el.innerHTML=c?`<div class="card coach-card">
-      <span class="rbadge" style="background:var(--blue)">教练</span>
+    if(!c){
+      el.innerHTML=`<div style="text-align:center;padding:20px;color:var(--dim);font-size:12px;background:var(--panel2);border:1px dashed var(--border);border-radius:7px">暂无教练<br><span style="font-size:11px">前往转会市场签约教练<br><span style="color:#86efac">💡 开局可签 C 级教练（$500 起）</span></span></div>`;
+      return;
+    }
+    const gc=c.gradeColor||'var(--blue)';
+    const gl=c.grade||(c.tactics>=68?'S 级':c.tactics>=58?'A 级':c.tactics>=45?'B 级':'C 级');
+    el.innerHTML=`<div class="card coach-card" style="border-color:${gc}33">
+      <span class="rbadge" style="background:${gc};color:#000">教练</span>
+      <div style="position:absolute;top:10px;right:52px;font-size:9px;font-weight:700;padding:2px 6px;border-radius:3px;background:${gc}22;border:1px solid ${gc};color:${gc}">${gl}</div>
       <div class="cname">${c.name} <span style="font-size:10px;color:var(--dim)">(${c.age}岁)</span></div>
-      <div class="cstat"><span>战术水平</span><b style="color:var(--blue)">${c.tactics}</b></div>
+      <div class="cstat"><span>战术水平</span><b style="color:${gc}">${c.tactics}</b></div>
       <div class="cstat"><span>磨合上限</span><b>${Game.chemCap()}%</b></div>
       <div class="cstat"><span>BP精准度</span><b>${Math.round(40+c.tactics*.5)}%</b></div>
-      <div class="mapbars">${(c.maps||[]).slice(0,2).map(m=>`<div class="mapbar-row"><span class="mapbar-name">${MapUtils.display(m.map)}</span><div class="mapbar-bg"><div class="mapbar-fill" style="width:${m.str}%;background:var(--blue)"></div></div><span style="font-size:9px;color:var(--dim)">${m.str}</span></div>`).join('')}</div>
+      <div class="cstat"><span>周薪</span><b style="color:var(--loss)">$${(c.salary||0).toLocaleString()}/周</b></div>
+      <div class="mapbars">${(c.maps||[]).slice(0,2).map(m=>`<div class="mapbar-row"><span class="mapbar-name">${MapUtils.display(m.map)}</span><div class="mapbar-bg"><div class="mapbar-fill" style="width:${m.str}%;background:${gc}"></div></div><span style="font-size:9px;color:var(--dim)">${m.str}</span></div>`).join('')}</div>
       <button class="btn danger full" onclick="Game.fireC()">解雇教练</button>
-    </div>`:`<div style="text-align:center;padding:20px;color:var(--dim);font-size:12px;background:var(--panel2);border:1px dashed var(--border);border-radius:7px">暂无教练<br><span style="font-size:11px">前往转会市场签约教练</span></div>`;
+    </div>`;
   },
 
   renderMapPool(){
@@ -4540,13 +5425,12 @@ const UI={
     const evs=Cal.evs.filter(e=>e.date>=Game.date).slice(0,12);
     const boTag=(tier,phase)=>{const f=Cal.tierFormats[tier];const bo=phase==='final'?f.finalBo:phase==='ko'?f.knockoutBo:f.groupBo;const cls=bo===1?'bo-bo1':bo===3?'bo-bo3':'bo-bo5';return`<span class="bo-tag ${cls}">${Cal.boLabel(bo)}</span>`;};
     const el=document.getElementById('cal-container');if(!el)return;
-    el.innerHTML=evs.length?evs.map(e=>`<div class="cev ${e.tier==='major'?'major':e.tier==='a-tier'?'atier':'ctier'}">
+    el.innerHTML=evs.length?evs.map(e=>`<div class="cev ${e.tier==='major'?'major':e.tier==='a-tier'?'atier':e.tier==='b-tier'?'btier':'ctier'}">
       <div class="cev-date">${fmtD(e.date).substring(5)}</div>
       <div class="cev-body">
-        <div class="cev-name" style="color:${e.tier==='major'?'var(--mvp)':'#fff'}">${e.name}
-          ${boTag(e.tier,'group')} → ${boTag(e.tier,'ko')}${e.tier==='major'?` → ${boTag(e.tier,'final')}`:''}
-        </div>
-        <div class="cev-sub">准入: 世界排名前 ${e.minRank} | 奖金: $${e.prize.toLocaleString()} | 队伍: ${e.teams}${e.difficulty?` | 难度: ${e.difficulty==='easy'?'入门':e.difficulty==='mid'?'进阶':'精英'}`:''}</div>
+        <div class="cev-name" style="color:${e.tier==='major'?'var(--mvp)':e.tier==='b-tier'?'#10b981':'#fff'}">${e.name}
+          ${boTag(e.tier,'group')} → ${boTag(e.tier,'ko')}${(e.tier==='major'||e.tier==='b-tier')?` → ${boTag(e.tier,'final')}`:''}        </div>
+        <div class="cev-sub">准入: 世界排名前 ${e.minRank} | 奖金: $${e.prize.toLocaleString()} | 队伍: ${e.teams}${e.difficulty?` | 难度: ${e.difficulty==='debut'?'<b style="color:#ffd700">★ 首战</b>':e.difficulty==='easy'?'入门':e.difficulty==='mid'?'进阶':'精英'}`:''}</div>
       </div>
       <div>${e.isReg?'<button class="btn dark" disabled>已报名</button>':`<button class="btn" onclick="Cal.register('${e.id}')">报名</button>`}</div>
     </div>`).join(''):'<div style="color:var(--dim);padding:20px;text-align:center">本年赛事已结束，推进到下一年吧</div>';
@@ -4628,6 +5512,7 @@ const UI={
       <div class="intel-row"><span style="color:var(--dim)">对手弱图</span><span>${bot2.map(x=>`<span style="color:var(--win);font-weight:700">${MapUtils.display(x.map)}</span>`).join(' ')}</span></div>
       <div class="intel-row"><span style="color:var(--dim)">我方强图</span><span>${[...myRatings].sort((a,b)=>b.str-a.str).slice(0,3).map(x=>`<span style="color:var(--win);font-weight:700">${MapUtils.display(x.map)}</span>`).join(' ')}</span></div>
       <div class="intel-row"><span style="color:var(--dim)">对手战力</span><b style="color:var(--fg)">${((opp.roster||[]).reduce((s,p)=>s+(p.rating||60)*(p.form||1),0)/Math.max(1,(opp.roster||[]).length)).toFixed(1)}</b></div>
+      <div class="intel-row"><span style="color:var(--dim)">对手状态</span><b style="color:var(--fg)">${((opp.roster||[]).reduce((s,p)=>s+(p.form||1),0)/Math.max(1,(opp.roster||[]).length)*100).toFixed(0)}%</b></div>
       ${opp.coach?`<div class="intel-row"><span style="color:var(--dim)">对手教练</span><b style="color:var(--blue)">${opp.coach.name}（战术${opp.coach.tactics}）</b></div>`:''}`;
     const ic=document.getElementById('intel-content');if(ic)ic.innerHTML=html;
   },
@@ -4666,11 +5551,54 @@ const UI={
     const sideB=s.ctIsA?{t:'T',c:'bt'}:{t:'CT',c:'bct'};
     const badgeA=document.getElementById('badge-a');if(badgeA){badgeA.className=sideA.c;badgeA.innerText=sideA.t;}
     const badgeB=document.getElementById('badge-b');if(badgeB){badgeB.className=sideB.c;badgeB.innerText=sideB.t;}
-    const pistol=!s.isOT&&(s.round===0||s.round===s.era.halfR);
-    const bA=Match.buyStatus(s.monA,pistol,s.isOT),bB=Match.buyStatus(s.monB,pistol,s.isOT);
-    const cls=x=>x.lvl==='Eco'?'style="color:var(--loss)"':x.lvl==='Force'?'style="color:var(--gold)"':'style="color:var(--win)"';
-    const ecoA=document.getElementById('eco-a');if(ecoA)ecoA.innerHTML=`$${s.monA} | 连败${s.lsA} <span ${cls(bA)}>[${bA.name}]</span>`;
-    const ecoB=document.getElementById('eco-b');if(ecoB)ecoB.innerHTML=`$${s.monB} | 连败${s.lsB} <span ${cls(bB)}>[${bB.name}]</span>`;
+    // 4. 战术控制面板
+    const side = s.ctIsA ? 'CT' : 'T';
+    const isPause = Match.tactics.timeouts < 4; // 简单判断是否用过暂停
+    const toColor = Match.tactics.timeouts > 0 ? '#fff' : 'var(--dim)';
+    
+    const ctrl = document.getElementById('live-ctrl');
+    if(ctrl) {
+        ctrl.innerHTML = `
+        <div class="panel-title" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <span>🧠 战术指挥板 <span style="font-size:11px;color:var(--dim);font-weight:400">第 ${s.round+1} 回合 (${side})</span></span>
+            <button class="btn" style="padding:2px 8px;font-size:11px;background:var(--panel2);border:1px solid var(--border);color:${toColor}" 
+                onclick="Match.callTimeout()" ${Match.tactics.timeouts <= 0 ? 'disabled' : ''}>
+                ⏸ 叫暂停 (${Match.tactics.timeouts})
+            </button>
+        </div>
+        
+        <div style="display:flex;gap:12px;margin-bottom:12px">
+            <!-- 经济策略 -->
+            <div style="flex:1">
+                <div style="font-size:11px;color:var(--dim);margin-bottom:4px">💰 经济决策</div>
+                <div class="btn-group" style="display:flex;gap:4px">
+                    <button class="trbtn ${Match.tactics.econ==='auto'?'on':''}" style="flex:1;font-size:10px;padding:4px" onclick="Match.setEcon('auto')">Auto</button>
+                    <button class="trbtn ${Match.tactics.econ==='force'?'on':''}" style="flex:1;font-size:10px;padding:4px" onclick="Match.setEcon('force')">Force</button>
+                    <button class="trbtn ${Match.tactics.econ==='eco'?'on':''}" style="flex:1;font-size:10px;padding:4px" onclick="Match.setEcon('eco')">Eco</button>
+                </div>
+            </div>
+            
+            <!-- 战术阵型 -->
+            <div style="flex:1.2">
+                <div style="font-size:11px;color:var(--dim);margin-bottom:4px">⚔️ 战术阵型 (${side})</div>
+                <div class="btn-group" style="display:flex;gap:4px">
+                    <button class="trbtn ${Match.tactics.stance==='default'?'on':''}" style="flex:1;font-size:10px;padding:4px" onclick="Match.setStance('default')">默认</button>
+                    ${side==='T' 
+                        ? `<button class="trbtn ${Match.tactics.stance==='rush'?'on':''}" style="flex:1;font-size:10px;padding:4px" onclick="Match.setStance('rush')">爆弹</button>
+                           <button class="trbtn ${Match.tactics.stance==='slow'?'on':''}" style="flex:1;font-size:10px;padding:4px" onclick="Match.setStance('slow')">慢摸</button>`
+                        : `<button class="trbtn ${Match.tactics.stance==='aggro'?'on':''}" style="flex:1;font-size:10px;padding:4px" onclick="Match.setStance('aggro')">前压</button>
+                           <button class="trbtn ${Match.tactics.stance==='retake'?'on':''}" style="flex:1;font-size:10px;padding:4px" onclick="Match.setStance('retake')">回防</button>`
+                    }
+                </div>
+            </div>
+        </div>
+        
+        <div style="display:flex;gap:8px">
+            <button class="btn full" onclick="Match.round()" style="flex:2;background:var(--win);border:none;color:#000;font-weight:700">▶ 执行战术</button>
+            <button class="btn full" onclick="Match.auto()" style="flex:1;background:var(--panel2);border:1px solid var(--border);color:var(--dim)">⏩ 快速模拟</button>
+        </div>
+        `;
+    }
   },
 
   log(msg,type,style=''){
