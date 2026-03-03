@@ -124,6 +124,9 @@ const Game={
         // 补充市场选手需要的字段
         p.evalStatus=2; // 自家队员直接可见
         if(!p.id.startsWith('p'))p.id='p'+p.id; // 统一ID前缀
+        // 初始队员合约2年
+        p.contractYears = 2;
+        p.contractEndYear = 2002;
         World.players.push(p);this.roster.push(p);
       });
       Cal.genYear(2000);this.money=this.initialCapital;
@@ -606,6 +609,10 @@ const Game={
     });
     if(this.coach&&this.coach.age>=40&&Math.random()<.05){UI.toast(`📢 教练 ${this.coach.name} 选择离队。`);this.coach=null;}
     if(this.coach)this.coach.age++;
+    
+    // ── 合同年限系统 ──────────────────────────────────
+    this._checkContracts(y);
+    
     this._aiTransfer(y);
     HLTV.calc(y);
     Cal.genYear(y+1);
@@ -656,6 +663,88 @@ const Game={
       });
     });
   },
+  _checkContracts(y){
+    // 检查本年或明年到期的合同，触发续约/争抢事件
+    const expiringNow   = this.roster.filter(p=>p.contractEndYear===y);
+    const expiringNext  = this.roster.filter(p=>p.contractEndYear===y+1);
+
+    // 1. 合同到期的选手：必须决定续约还是放人
+    expiringNow.forEach(p=>{
+      const avgRating = p.ys.matches > 0 ? p.ys.ratingSum / Math.max(1, p.ys.matches) : 1.0;
+      const isStarPerformer = avgRating >= 1.10 || p.rating >= 80;
+
+      // 判断是否有AI战队争抢（表现越好越容易被抢）
+      let competitorOffer = 0;
+      let competitorName  = '';
+      if(isStarPerformer && Math.random() < 0.5){
+        const rival = World.teams.filter(t=>!t.isPlayer&&t.rating>this.power().eff-10).sort(()=>Math.random()-.5)[0];
+        if(rival){
+          // 竞争报价：比当前薪资高20%~60%
+          competitorOffer = Math.floor(p.salary * (1.2 + Math.random()*0.4));
+          competitorName  = rival.name;
+        }
+      }
+
+      // 建议续约薪资（表现好+15%，一般+5%，差持平）
+      const perfMult = avgRating >= 1.10 ? 1.15 : avgRating >= 0.95 ? 1.05 : 1.0;
+      const renewSalary = Math.floor(p.salary * perfMult);
+      const newContractYears = 2; // 默认2年续约
+
+      let msg = `📋 ${p.name} 合同到期！\n建议续约薪资：$${renewSalary.toLocaleString()}/周 ×${newContractYears}年`;
+      if(competitorOffer > 0){
+        msg += `\n⚠️ ${competitorName} 开价 $${competitorOffer.toLocaleString()}/周 争抢！`;
+        msg += `\n（你可匹配或超出该报价留住选手）`;
+      }
+      msg += `\n\n点"确定"以 $${renewSalary.toLocaleString()}/周 续约${newContractYears}年，"取消"放弃续约。`;
+
+      const ok = confirm(msg);
+      if(ok){
+        // 续约
+        p.salary = renewSalary;
+        p.contractYears = newContractYears;
+        p.contractEndYear = y + newContractYears;
+        this.pushNews(`✍️ ${p.name} 续约 ${newContractYears} 年，新薪资 $${renewSalary.toLocaleString()}/周`);
+        UI.toast(`✅ ${p.name} 续约成功！`);
+      } else {
+        // 不续约：如果有争抢则加入争抢方，否则变自由人
+        if(competitorOffer > 0 && competitorName){
+          p.teamId = competitorName;
+          const rival = World.teams.find(t=>t.name===competitorName);
+          if(rival && rival.roster){
+            rival.roster.push(p);
+            if(rival.roster.length > 6) rival.roster.shift(); // 挤掉一个弱的
+          }
+          this.pushNews(`💔 ${p.name} 合同到期，加盟 ${competitorName}！`);
+          UI.toast(`😢 ${p.name} 离队，加入 ${competitorName}`);
+        } else {
+          p.teamId = null;
+          this.pushNews(`🚪 ${p.name} 合同到期，成为自由人`);
+          UI.toast(`📢 ${p.name} 合同到期，已成为自由人`);
+        }
+        this.roster = this.roster.filter(x=>x.id!==p.id);
+      }
+    });
+
+    // 2. 明年到期提前提醒
+    expiringNext.forEach(p=>{
+      this.pushNews(`⏰ 提醒：${p.name} 合同将于 ${y+1} 年到期，请提前规划续约！`);
+    });
+
+    // 3. 教练合同检查
+    if(this.coach && this.coach.contractEndYear===y){
+      const renewC = confirm(`📋 教练 ${this.coach.name} 合同到期！\n续约薪资：$${Math.floor(this.coach.salary*1.08).toLocaleString()}/周 ×2年\n\n确定续约？`);
+      if(renewC){
+        this.coach.salary = Math.floor(this.coach.salary*1.08);
+        this.coach.contractEndYear = y+2;
+        this.pushNews(`✍️ 教练 ${this.coach.name} 续约2年`);
+      } else {
+        UI.toast(`📢 教练 ${this.coach.name} 合同到期，已离队`);
+        this.pushNews(`🚪 教练 ${this.coach.name} 合同到期离队`);
+        this.coach = null;
+      }
+    }
+  },
+
   _randomEvent(){
     const ev=pick(RANDOM_EVENTS);
     if(ev.target==='player'&&this.roster.length){
@@ -680,14 +769,14 @@ const Game={
       if(el) el.classList.add('on');
 
       const d = {
-          rest:   '🛌 零风险 | 疲劳-35% | 所有属性微量恢复，状态回升。',
-          fpl:    '🎯 高风险高回报 | 疲劳+18% | 均衡提升全属性，3~5%概率大突破+form。',
-          utility:'💣 低强度 | 疲劳+12% | utility ★★★, opening ★★★, 次要 entrying。',
-          theory: '📺 需教练 | 疲劳+8% | opening ★★★, clutching ★★★, trading ★★, 次要 utility。',
-          team:   '🤝 高强度 | 疲劳+25% | trading ★★★, clutching ★★, utility ★★★, 次要 opening。',
-          dm:     '🔫 伤病风险10% | 疲劳+22% | firepower ★★★, sniping ★★★, 次要 entrying。',
-          retake: '💥 心理压力风险5% | 疲劳+20% | clutching ★★★, trading ★★★, 次要 opening。',
-          phys:   '🏃 防伤病 | 疲劳+5% | form+20%上限, 全属性小提升, 次要 clutching。',
+          rest:   '🛌 零风险 | 疲劳-22% | 全属性微量恢复(+0.08/属性)，状态每日+1.5%，高疲劳时防止状态崩溃。',
+          fpl:    '🎯 高风险高回报 | 疲劳+18% | 全属性均衡★，角色主属性额外★★，3~5%概率大突破(+1.5~3.0)。',
+          utility:'💣 低强度 | 疲劳+12% | utility ★★★, opening ★★★, entrying ★（次要）。顺带小概率提升地图熟练度。',
+          theory: '📺 需教练 | 疲劳+7% | opening ★★★, clutching ★★★, trading ★★, utility ★（次要）。磨合度随教练战术值提升。',
+          team:   '🤝 高强度 | 疲劳+11% | trading ★★★, utility ★★★, clutching ★★, opening ★（次要）。磨合度显著提升，有独裁战术时效果×2。',
+          dm:     '🔫 伤病风险10% | 疲劳+10% | firepower ★★★, sniping ★★★, entrying ★（次要）。支持大突破，高强度有10%伤病风险。',
+          retake: '💥 心理压力风险5% | 疲劳+9% | clutching ★★★, trading ★★★, opening ★（次要）。支持大突破，有5%心理波动风险。',
+          phys:   '🏃 防伤病 | 疲劳+5% | 状态每日+2.5%（上限提升至1.20），全属性★均衡微提升。疲劳最低，适合赛前恢复。',
       };
       const td = document.getElementById('tr-desc');
       if(td) td.innerText = d[m] || '';
@@ -869,10 +958,16 @@ const Game={
 
     if (this.money < finalPrice) return UI.toast('资金不足！', 'loss');
 
+    // 选择合同年限
+    const yearsInput = prompt(`成功竞得 ${p.name}！请选择合同年限（1、2 或 3 年）：\n薪资：$${(p.salary||0).toLocaleString()}/周`, '2');
+    const contractYears = Math.min(3, Math.max(1, parseInt(yearsInput)||2));
+
     // 执行买入（复用 buyP 核心逻辑）
     this.money -= finalPrice;
     p.teamId = 'PLAYER';
     p.evalStatus = 2;            // 买入后完全可见
+    p.contractYears = contractYears;
+    p.contractEndYear = this.date.getFullYear() + contractYears;
     this.roster.push(p);
     this.chem = Math.max(0, this.chem - 15);
     Market.pList = Market.pList.filter(x => x.id !== id);
@@ -889,20 +984,31 @@ const Game={
     const isRealLegend=p.isReal&&p.rarity==='legend';
     const required=isRealLegend?Math.ceil(p.price*1.5):p.price;
     if(this.money<required)return UI.toast(isRealLegend?`传奇选手需至少 $${required.toLocaleString()}`:'资金不足！');
-    this.money-=required;p.teamId='PLAYER';p.evalStatus = 2; // 购买后完全可见
+    
+    // 选择合同年限
+    const yearsInput = prompt(`签约 ${p.name}，请选择合同年限（输入 1、2 或 3 年）：\n当前薪资：$${(p.salary||0).toLocaleString()}/周\n较长合同薪资不变，但到期前会提醒续约`, '2');
+    const contractYears = Math.min(3, Math.max(1, parseInt(yearsInput)||2));
+    
+    this.money-=required;p.teamId='PLAYER';p.evalStatus = 2;
+    p.contractYears = contractYears;
+    p.contractEndYear = this.date.getFullYear() + contractYears;
     this.roster.push(p);this.chem=Math.max(0,this.chem-15);
     Market.pList=Market.pList.filter(x=>x.id!==id);
     const costText = p.price > 0 ? `$${p.price.toLocaleString()}` : 'Free';
-    UI.toast(isRealLegend ? `✍ 重金签下传奇: ${p.name}` : `✍ 签下: ${p.name} (花费 ${costText})`);
+    UI.toast(isRealLegend ? `✍ 重金签下传奇: ${p.name} (${contractYears}年合同)` : `✍ 签下: ${p.name} (花费 ${costText}，${contractYears}年合同)`);
     UI.refresh();Market.renderAll();
   },
   buyC(id){
     const c=Market.cList.find(x=>x.id===id);if(!c)return;
     if(this.money<c.price)return UI.toast('资金不足！');
     if(this.coach)UI.toast(`📢 已解雇原教练 ${this.coach.name}`);
+    const yearsInput = prompt(`签约教练 ${c.name}，请选择合同年限（1、2 或 3 年）：`, '2');
+    const contractYears = Math.min(3, Math.max(1, parseInt(yearsInput)||2));
     this.money-=c.price;c.teamId='PLAYER';this.coach=c;
+    c.contractYears = contractYears;
+    c.contractEndYear = this.date.getFullYear() + contractYears;
     Market.cList=Market.cList.filter(x=>x.id!==id);
-    UI.toast(`✍ 签约教练: ${c.name}（战术${c.tactics}）`);UI.refresh();Market.renderAll();
+    UI.toast(`✍ 签约教练: ${c.name}（战术${c.tactics}，${contractYears}年合同）`);UI.refresh();Market.renderAll();
   },
   sellP(id) {
       if(this.roster.length <= 1) return UI.toast('至少保留一名选手！');
@@ -1186,6 +1292,11 @@ const Cal={
                        tier === 'a-tier' ? 600 :
                        tier === 'b-tier' ? 200 : 60;
 
+    // 赛事真实持续天数（Major 7天, A-Tier 5天, B-Tier 3天, C-Tier 2天）
+    const duration = tier === 'major' ? 7 :
+                     tier === 'a-tier' ? 5 :
+                     tier === 'b-tier' ? 3 : 2;
+
     this.evs.push({
         id:'t'+rnd(1000,9999),
         date:new Date(y,mo,d),
@@ -1193,6 +1304,7 @@ const Cal={
         bracket,
         teams,prize,minRank,basePoints,
         difficulty,
+        duration,
         isReg:false,fmt:tf
     });
   },

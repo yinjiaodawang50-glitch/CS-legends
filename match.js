@@ -770,7 +770,7 @@ const Tour={
     if(mvp)mvp.player.ys.mvps++;
     (champ.roster||[]).forEach(p=>{p.ys.wins++;if(this.ev.tier==='major')p.ys.majorWins++;});
     if(champ.isPlayer){
-      Game.trophies.push({event:this.ev.name,date:new Date(Game.date),rank:'Champion',prize:this.prize});
+      Game.trophies.push({event:this.ev.name,date:new Date(Game.date),rank:'Champion',prize:this.prize,tier:this.ev.tier});
       // Game.fans update moved to World.updateTeamFans via updatePlayerFans
       SaveManager.save();
     }
@@ -875,6 +875,12 @@ const Tour={
         else if (playerStandingIndex < 4) prize = Math.floor(this.ev.prize * 0.15);   // 3-4名 15%
         else if (playerStandingIndex < 8) prize = Math.floor(this.ev.prize * 0.05);   // 5-8名 5%
         else prize = Math.floor(this.ev.prize * 0.01);                                // 参赛保底 1%
+
+        // 记录非冠军名次荣誉（亚军/四强/八强）
+        if(playerStandingIndex >= 0 && playerStandingIndex <= 7) {
+            Game.trophies.push({event:this.ev.name,date:new Date(Game.date),rank,prize,tier:this.ev.tier});
+            SaveManager.save();
+        }
     }else{prize=this.ev.prize;rank='🏆 赛事总冠军';}
     this.prize=prize;
     UI.renderAwards(mvp,evps,champ,rank,prize);
@@ -928,6 +934,17 @@ const Tour={
 
   closeAwards(){
     if(this.prize>0){Game.money+=this.prize;Game.fans+=Math.floor(this.prize/200);}
+    // 赛事结束后推进对应天数（赛事占用真实时间，变相减少训练机会）
+    const duration = (this.ev && this.ev.duration) || 2;
+    for(let i=0; i<duration; i++){
+      Game.date.setDate(Game.date.getDate()+1);
+      // 周薪扣除（赛事期间仍需支付开支）
+      if(Game.date.getDay()===1){
+        const weeklyCost=Math.floor(Game.calculateOperatingCost()/4);
+        Game.money-=weeklyCost;
+      }
+    }
+    UI.toast(`📅 赛事结束，时间推进了 ${duration} 天`);
     this.ev=null;this.phase='idle';UI.page('schedule');UI.refresh();
   }
 };

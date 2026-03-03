@@ -107,7 +107,7 @@ cs-legends/
 
 ### `world.js` — 工具函数 / 选手生成 / 排名 / 转会市场 / 存档
 
-**职责：** 游戏世界的"数据层"，约 1579 行。
+**职责：** 游戏世界的"数据层"，约 1743 行。
 
 #### 全局工具函数
 | 函数 | 说明 |
@@ -117,6 +117,31 @@ cs-legends/
 | `fmtD(date)` | Date 对象格式化为 `YYYY-MM-DD` 字符串 |
 | `calcCoachSalary(tactics)` | 按战术值计算教练周薪（分段幂次公式） |
 | `drawPlayerRadar(canvas, player, mini)` | 在 `<canvas>` 上绘制选手 7D 雷达图（支持 sub_pot 虚线潜力圈） |
+| `generatePlayerHistory(age, rating, hltv, currentYear)` | 根据选手当前状态逆推完整生涯历史履历（见下方详述） |
+
+#### `generatePlayerHistory(age, rating, hltv, currentYear)` — 生涯历史生成
+
+为转会市场选手逆推完整的生涯履历，每年一条记录，使用"合同期"概念控制换队节奏（每份合同 1~3 年）。
+
+**生涯曲线五段模型：**
+
+| 阶段 | 年龄区间 | 能力倍率 | 波动幅度 | 胜率修正 |
+|------|---------|---------|---------|---------|
+| 新秀期 | debut ~ 17 岁 | 65~74% | ±18%（高波动） | ×0.82（适应期） |
+| 上升期 | 18 ~ peakAge-4 | 72~86% | ±13% | 正常 |
+| 接近巅峰 | peakAge-4 ~ peakAge | 86~100% | ±9% | 正常 |
+| 巅峰期 | peakAge ~ +3 年 | 97~100% | ±7%（最稳定） | 正常 |
+| 后巅峰 | +3 ~ +6 年 | 缓退，18% 概率第二春 | ±10% | ×0.88 |
+| 衰退期 | +6 年以上（31岁+） | 最低 68%，12% 老将闪光 | ±12% | ×0.82 |
+
+**巅峰年龄与角色挂钩（含随机偏移 ±1~2 年）：**
+- IGL / Lurker（经验驱动）：基础巅峰 27 岁
+- Entry / Sniper（反应驱动）：基础巅峰 24 岁
+- Rifler：基础巅峰 25 岁
+
+**赛季 rating 计算：** 以 `pastRating` 映射"当时级别联赛的期望表现"（`0.88 + (pastRating-40)/100 * 0.28`），再叠加角色属性修正（firepower/entrying 正向，utility 微正）和胜率加成，最后加 `vol` 控制的随机噪声。
+
+**与 `mkP` / `mkRealPlayer` 的集成点：** 两处均在 `hltv` 生成后立即调用此函数，传入 `hltv._role` 保证角色特征在历史属性缩放时得到保留。
 
 #### `MapUtils` 对象
 - `poolForYear(y)` — 按年份返回当时有效地图池
@@ -392,3 +417,4 @@ cs-legends/
 | 当前 | 项目拆分为 7 文件（style.css / constants.js / world.js / core.js / match.js / ui.js） |
 | 修复 | **[world.js]** 修复七维属性（hltv）可能超出对应 sub_pot 上限的 bug。根本原因有二：① `mkRealPlayer` 从未生成 `sub_pot`，导致真实历史选手没有任何维度约束；② `generateHLTVProfile` 生成初始属性时对每个维度统一 clamp 到 `[40, 99]`，完全不知道 `sub_pot` 的存在。修复方案：`generateHLTVProfile` 新增可选第三参数 `subPot`，`vary()` 内部改为对每个 key 取 `min(subPot[key], 99)` 作为上限；所有调用点（`mkRealPlayer`、`World.mkP`、`Market.mkP`、`SaveManager` 懒初始化）均改为先生成 `sub_pot` 再传入 `generateHLTVProfile`。 |
 | 修复 | **[core.js]** 修复综评潜力（`potential`）与七维潜力（`sub_pot`）均值不一致的问题。根本原因：`Game.init()` 在调用 `World.mkP()` 得到选手后，会用一套独立的 `potBonus` 公式覆写 `p.potential`，但 `sub_pot` 已经在 `mkP()` 内部按旧的 `potential` 生成好了，覆写后两者脱节（例如显示潜力=58，但七维均值=49）。修复：覆写 `p.potential` 后立即重新生成 `p.sub_pot`。同步修复年末老化逻辑：`potential` 每次降 1 后，按等比例缩放所有 `sub_pot` 维度，保证均值始终等于 `potential`。 |
+| 新增 | **[world.js]** 新增 `generatePlayerHistory()` 函数，为转会市场选手生成拟真的生涯历史履历。核心特性：①**五段生涯曲线**——新秀期/上升期/接近巅峰/巅峰期/后巅峰/衰退期各段有独立的能力倍率、波动幅度和胜率修正；②**角色联动巅峰年龄**——IGL/Lurker 经验驱动巅峰偏晚（27岁），Entry/Sniper 反应驱动巅峰偏早（24岁），含 ±1~2 年个体差异；③**特殊事件**——后巅峰有 18% 概率触发"老将第二春"，衰退期有 12% 概率触发"老将闪光"；④**每年一条记录**，合同期（1~3年）内队名保持连续，体现真实转会节奏；⑤**赛季 rating 基于当时联赛级别**而非顶级赛场标准，低评分选手在低级联赛的 rating 同样正常分布（0.72~1.0），不会全部钉在下界。 |

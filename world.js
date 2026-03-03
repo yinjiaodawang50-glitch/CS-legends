@@ -152,6 +152,167 @@ function calcCoachSalary(tactics){
   if(tactics<=72) return Math.floor(800+Math.pow(tactics-62,2)*17);
   return Math.floor(2500+Math.pow(tactics-72,2)*80);
 }
+
+// ─── 选手历史履历生成 ────────────────────────────────
+// 根据选手年龄、能力值、七维属性逆推出合理的生涯历史记录
+// hltv 参数：选手当前七维属性对象（firepower/entrying/clutching/utility/trading/sniping/opening）
+// ─── 选手历史履历生成（生涯曲线版）────────────────────
+// 根据选手现状（age、rating、hltv七维属性）逆推完整生涯轨迹。
+// 生涯曲线分五段，各段有独立的能力系数、波动幅度和稳定性：
+//   新秀期 (debut~19)  ：属性偏低，高波动，偶有爆发
+//   上升期 (20~23)     ：稳步成长，每年小幅提升
+//   巅峰期 (24~27)     ：能力系数最高，波动最小
+//   后巅峰 (28~30)     ：小幅衰退，可能出现"老将第二春"
+//   衰退期 (31+)       ：逐年下滑，个别赛季有反弹
+function generatePlayerHistory(age, rating, hltv, currentYear) {
+  const history = [];
+
+  // ── 1. 出道年龄（与实力挂钩）
+  const debutAge = rating >= 88 ? rnd(15, 17)
+                 : rating >= 75 ? rnd(17, 19)
+                 : rating >= 62 ? rnd(18, 21)
+                 : rnd(19, 23);
+  if (age <= debutAge) return history;
+
+  // ── 2. 巅峰年龄（角色 + 随机偏移）
+  // IGL/Lurker 经验驱动，巅峰偏晚；Entry/Sniper 反应驱动，巅峰偏早
+  const rolePeakBase = (['IGL','Lurker'].includes(hltv._role))  ? 27
+                     : (['Entry','Sniper'].includes(hltv._role)) ? 24
+                     : 25;
+  const peakAge = rolePeakBase + rnd(-1, 2);
+
+  // ── 3. 战队池分层
+  const topTeams    = ['NAVI','FaZe','Vitality','G2','NIP','Astralis','fnatic','MOUZ','VP','Liquid','Heroic','Cloud9','ENCE','FURIA','Spirit'];
+  const midTeams    = ['Complexity','Endpoint','Sprout','SAW','GamerLegion','SINNERS','Apeks','Monte','Fluxo','paiN','Imperial','MIBR','Eternal Fire','BIG'];
+  const amateurPool = ['City Hunters','LAN Killers','Net Cafe Boys','Pixel Warriors','Frag Masters','Midnight Aimers','Keyboard Heroes','Screen Glancers','Ping Lords','Cyber Star'];
+
+  const teamPoolFor = r => {
+    if (r >= 84) return Math.random() < 0.55 ? topTeams : midTeams;
+    if (r >= 70) return Math.random() < 0.20 ? topTeams : midTeams;
+    if (r >= 55) return Math.random() < 0.12 ? midTeams : amateurPool;
+    return amateurPool;
+  };
+
+  // ── 4. 生涯曲线参数：[能力倍率, 波动幅度, 阶段标签]
+  // mult 范围缩小到 0.65~1.0：属性本身不压太低，弱势更多体现在胜率和波动上
+  const getCurveParams = (ageAtYear) => {
+    const d = ageAtYear - peakAge;
+
+    if (ageAtYear < 18) {
+      // 新秀期：能力 65~75%，高波动，胜率惨
+      const mult = 0.65 + (ageAtYear - debutAge) * 0.02;
+      return { mult: Math.min(0.74, mult), vol: 0.18, label: 'rookie' };
+    }
+    if (d < -4) {
+      // 上升前期：稳步成长
+      const mult = 0.72 + (ageAtYear - 18) * 0.022;
+      return { mult: Math.min(0.86, mult), vol: 0.13, label: 'rising' };
+    }
+    if (d < 0) {
+      // 接近巅峰：快速收敛
+      const mult = 0.86 + (d + 4) * 0.035;
+      return { mult: Math.min(1.00, mult), vol: 0.09, label: 'prime_approach' };
+    }
+    if (d <= 3) {
+      // 巅峰期：最稳定
+      return { mult: 1.00 - d * 0.015, vol: 0.07, label: 'peak' };
+    }
+    if (d <= 6) {
+      // 后巅峰：缓慢衰退，18%概率"老将第二春"
+      const baseMult = 0.955 - (d - 3) * 0.025;
+      const secondWind = Math.random() < 0.18;
+      return { mult: secondWind ? Math.min(0.98, baseMult + 0.05) : baseMult, vol: 0.10,
+               label: secondWind ? 'second_wind' : 'decline_early' };
+    }
+    // 衰退期（31+）：加速下滑，12%概率老将闪光
+    const baseMult = Math.max(0.68, 0.88 - (d - 6) * 0.04);
+    const veteran  = Math.random() < 0.12;
+    return { mult: veteran ? Math.min(0.92, baseMult + 0.07) : baseMult, vol: 0.12,
+             label: veteran ? 'veteran_flash' : 'decline' };
+  };
+
+  // ── 5. 赛季 rating 计算
+  // 思路：用 pastRating 算出"在当时级别联赛里的期望表现均值"，
+  // 再用角色七维属性做特征修正（Entry比IGL统计好看），最后叠加随机波动
+  // 这比直接套职业顶级联赛校准的 HLTV 公式更合理
+  const calcSeasonRating = (pastRat, h, winRate, vol) => {
+    // 基础期望：选手在"当时级别的联赛"里的表现
+    // 无论 rating 高低，面对的对手也是同级别，所以基础期望应在 0.88~1.10 之间
+    // rating 40 → 0.88（弱旅里的普通人），rating 95 → 1.12（顶级联赛的统治者）
+    const base = 0.88 + (pastRat - 40) / 100 * 0.28;
+
+    // 角色特征修正：Entry/Sniper 统计数字好看（firepower驱动），IGL偏低
+    const fp = (h.firepower || 60);
+    const ut = (h.utility   || 60);
+    const en = (h.entrying  || 60);
+    const cl = (h.clutching || 60);
+    // 各属性相对于平均值(60)的偏差，对 rating 产生微小影响
+    const roleAdj = ((fp - 60) * 0.0025) +   // firepower 正向
+                    ((ut - 60) * 0.0008) +    // utility 微正
+                    ((en - 60) * 0.0015) +    // entrying 正向
+                    ((cl - 60) * 0.0010);     // clutching 微正
+
+    // 胜率加成：赢多了 rating 高（体现在 KAST 和 KPR 上）
+    const winAdj = (winRate - 0.50) * 0.12;
+
+    // 随机波动（由 vol 控制，新秀大、巅峰小）
+    const noise = (Math.random() - 0.5) * 2 * vol;
+
+    return Math.min(1.42, Math.max(0.70, base + roleAdj + winAdj + noise));
+  };
+
+  // ── 6. 逐年生成（每年一条记录，队伍按合同期连续）
+  let yr        = currentYear - (age - debutAge);
+  let curTeam   = '';
+  let stintLeft = 0;
+
+  while (yr < currentYear) {
+    const ageAtYear = age - (currentYear - yr);
+
+    const { mult, vol, label } = getCurveParams(ageAtYear);
+
+    const pastHltv = {};
+    Object.keys(hltv).forEach(k => {
+      if (k === '_role') { pastHltv[k] = hltv[k]; return; }
+      pastHltv[k] = Math.max(32, Math.round((hltv[k] || 60) * mult) - rnd(0, 3));
+    });
+
+    const pastRating = Math.max(38, Math.round(rating * mult) - rnd(0, 3));
+
+    const winRateBase = Math.min(0.72, 0.36 + (pastRating - 38) / 100 * 0.52);
+    const winRate     = label === 'rookie'  ? winRateBase * 0.82
+                      : label === 'decline' ? winRateBase * 0.88
+                      : winRateBase;
+
+    const perf = calcSeasonRating(pastRating, pastHltv, winRate, vol);
+
+    const mvpChance = label === 'peak'          ? 0.28
+                    : label === 'second_wind'   ? 0.22
+                    : label === 'veteran_flash' ? 0.18
+                    : label === 'prime_approach'? 0.14
+                    : 0.06;
+    const mvps = (pastRating >= 75 && perf >= 1.08 && Math.random() < mvpChance) ? rnd(1, 2)
+               : (pastRating >= 65 && perf >= 1.02 && Math.random() < 0.08)       ? 1 : 0;
+
+    // stint 结束才换队（1~3年一份合同）
+    if (stintLeft <= 0) {
+      const teamPool = teamPoolFor(pastRating);
+      const prev     = curTeam;
+      let candidate  = pick(teamPool);
+      if (candidate === prev && teamPool.length > 1)
+        candidate = pick(teamPool.filter(t => t !== prev)) || candidate;
+      curTeam   = candidate;
+      stintLeft = rnd(1, 3);
+    }
+    stintLeft--;
+
+    history.push({ year: yr, team: curTeam, rating: perf.toFixed(2), mvps, _phase: label });
+    yr++;
+  }
+
+  return history;
+}
+
 // ─── MapUtils ────────────────────────────────────────
 const MapUtils={
   poolForYear(y){
@@ -465,13 +626,16 @@ const World={
       traits:[...new Set(myTraits)],
       maps:MapUtils.genPlayerMaps(2000-(age-17)),
       ys:{matches:0,ratingSum:0,mvps:0,majorWins:0,wins:0},
-      history:[],_ageDecayYear:null,isReal:true,
+      history:[],
+      _ageDecayYear:null,isReal:true,
       country:cfg.country||'Unknown',countryCode:cfg.countryCode||null,
       handle,realName,
       performanceTracker: { lowRatingStreak: 0, highRatingStreak: 0 }
     };
     p.sub_pot = World.generateSubPotential(p.potential, p.role);
     p.hltv = World.generateHLTVProfile(p.rating, p.role, p.sub_pot);
+    // 生成出道前生涯历史，传入 hltv 确保 rating 与属性一致
+    p.history = generatePlayerHistory(Math.max(0, age - 1), rating, p.hltv, typeof Game!=='undefined'?Game.date.getFullYear():2000);
     
     // Determine Origin Type
     let originType = 'pro';
@@ -1120,13 +1284,15 @@ init(startYear){
       teamId:null,rarity,traits:[...new Set(myTraits)],
       maps:MapUtils.genPlayerMaps(birthYear),
       ys:{matches:0,ratingSum:0,mvps:0,majorWins:0,wins:0},
-      history:[],_ageDecayYear:null,
+      history:[],
+      _ageDecayYear:null,
       country:ident.country,countryCode:ident.countryCode,handle:ident.handle,
       isRegenLegend, // 标记，用于UI金色边框
       performanceTracker: { lowRatingStreak: 0, highRatingStreak: 0 }
     };
     obj.sub_pot = World.generateSubPotential(obj.potential, obj.role);
     obj.hltv = this.generateHLTVProfile(obj.rating, obj.role, obj.sub_pot);
+    obj.history = generatePlayerHistory(age, rating, obj.hltv, typeof Game!=='undefined'?Game.date.getFullYear():birthYear);
     return obj;
   },
   mkCoach(ai=false){

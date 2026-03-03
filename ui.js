@@ -244,12 +244,16 @@ const UI={
     }
     const tbody=document.getElementById('career-table');
     if(tbody){
-      const rows=(p.history||[]).map(c=>`<tr>
+      // 只展示最近8条历史，避免超长列表
+      const histRows=(p.history||[]).slice(-8);
+      const rows=histRows.map(c=>{
+        const r=parseFloat(c.rating);
+        return `<tr>
         <td>${c.year}</td>
         <td style="color:${c.team===(Game.teamName||'我的战队')?'var(--win)':'#fff'}">${c.team}</td>
-        <td style="${c.rating>=1.15?'color:var(--win)':c.rating<0.9?'color:var(--loss)':''}">${c.rating}</td>
+        <td style="${r>=1.15?'color:var(--win)':r<0.9?'color:var(--loss)':''}">${c.rating}</td>
         <td style="${c.mvps>0?'color:var(--mvp)':''}">${c.mvps||'-'}</td>
-      </tr>`).join('');
+      </tr>`;}).join('');
       const curM=Math.max(1,p.ys.matches);const curR=curM<5?0:p.ys.ratingSum/curM;
       tbody.innerHTML=rows+`<tr style="background:rgba(255,255,255,0.05)">
         <td>${Game.date.getFullYear()} (进行中)</td>
